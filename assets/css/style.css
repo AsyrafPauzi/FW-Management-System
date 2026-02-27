@@ -1,0 +1,69 @@
+/* Dashboard & List */
+.row-red { background-color: #fef2f2; border-left: 4px solid #ef4444; }
+.row-yellow { background-color: #fefce8; border-left: 4px solid #eab308; }
+.row-green { background-color: #ffffff; border-left: 4px solid #10b981; }
+
+/* Wizard Steps */
+.step-circle {
+    width: 32px; height: 32px; border-radius: 50%; display: flex;
+    align-items: center; justify-content: center; font-weight: bold; font-size: 12px;
+    transition: all 0.3s ease;
+}
+.hidden-step { display: none !important; }
+
+input[disabled], select[disabled] { background-color: #f8fafc; color: #94a3b8; cursor: not-allowed; }
+input[readonly] { background-color: #f1f5f9; color: #475569; cursor: default; }
+
+/* Upload Badge */
+.file-uploaded-badge {
+    display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+    background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px;
+    color: #15803d; font-size: 0.875rem; margin-top: 8px;
+}
+
+/* Custom Scrollbars */
+.custom-scrollbar::-webkit-scrollbar { width: 4px; height: 4px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+
+/* Sidebar Active State */
+.sidebar-link.active {
+    background-color: #2563eb !important;
+    color: white !important;
+    box-shadow: 0 10px 15px -3px rgba(37, 99, 235, 0.3);
+}
+
+/* Animations */
+.animate-fade-in {
+    animation: fadeIn 0.4s ease-out;
+}
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* Hidden Utility */
+.hidden-step { display: none !important; }
+
+/* Traffic Light Row Styles */
+.row-red { border-left: 4px solid #ef4444 !important; background-color: #fff1f2 !important; }
+.row-yellow { border-left: 4px solid #eab308 !important; background-color: #fefce8 !important; }
+.row-green { border-left: 4px solid #10b981 !important; }
+
+/* Form Locking */
+input[disabled], select[disabled] { 
+    background-color: #f8fafc !important; 
+    color: #94a3b8 !important; 
+    cursor: not-allowed; 
+    border: 1px solid #e2e8f0 !important; 
+}
+input[readonly] { background-color: #f1f5f9 !important; color: #475569 !important; }
+
+/* =========================================
+   TABLE RESPONSIVENESS FIX
+   ========================================= */
+@media (max-width: 1024px) {
+    .fws-table {
+        min-width: 900px; /* Forces scroll instead of squishing on tablets/phones */
+    }
+}
