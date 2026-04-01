@@ -12,7 +12,7 @@ if (!current_user_can_admin()) {
 }
 
 // 2. Pagination & Limit Logic
-$limit = isset($_GET['limit']) ? intval($_GET['limit']) : 20;
+$limit = isset($_GET['limit']) ? intval($_GET['limit']) : 10;
 $paged = isset($_GET['paged']) ? max(1, intval($_GET['paged'])) : 1;
 $offset = ($limit == -1) ? 0 : ($paged - 1) * $limit;
 

@@ -105,6 +105,7 @@ if (!current_user_can_admin()) {
                 </tbody>
             </table>
         </div>
+        <div id="report-pagination"></div>
     </div>
 </div>
 
@@ -125,8 +126,8 @@ function toggleReportFilters() {
 
 function loadReport() {
     var type = $('#rep_type').val();
-    var payload = { 
-        action: 'get_report', 
+    var payload = {
+        action: 'get_report',
         csrf_token: CSRF_TOKEN,
         type: type,
         category: $('#rep_cat').val()
@@ -140,16 +141,13 @@ function loadReport() {
     $.post(API_URL, payload, function(res) {
         Swal.close();
         if(res.success) {
-            // CRITICAL: Save the data to the global variable
             window.finalReportData = res.data;
-            console.log("Data loaded into finalReportData:", window.finalReportData.length, "rows");
 
-            var html = '';
             var totalIn = 0;
             var totalOut = 0;
+            var allRows = [];
 
             if(res.data && res.data.length > 0) {
-                // Sort Logic: Income first
                 res.data.sort(function(a, b) {
                     var aIsOut = (a.doc_type === 'Payment Voucher') ? 1 : 0;
                     var bIsOut = (b.doc_type === 'Payment Voucher') ? 1 : 0;
@@ -165,7 +163,7 @@ function loadReport() {
                     var dateDisplay = row.pdate ? row.pdate.split('-').reverse().join('/') : '-';
                     var badgeClass = isOut ? 'bg-red-50 text-red-600 border-red-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100';
 
-                    html += `<tr class="hover:bg-slate-50 transition border-b border-slate-50">
+                    allRows.push(`<tr class="hover:bg-slate-50 transition border-b border-slate-50">
                         <td class="p-6 font-bold text-slate-500">${dateDisplay}</td>
                         <td class="p-6"><span class="${badgeClass} px-3 py-1 rounded-lg border uppercase text-[9px] font-black tracking-widest">${row.doc_type}</span></td>
                         <td class="p-6">
@@ -176,16 +174,47 @@ function loadReport() {
                         <td class="p-6 text-right font-black ${isOut ? 'text-red-600' : 'text-slate-800'}">
                             ${isOut ? '-' : ''}${amt.toLocaleString('en-US', {minimumFractionDigits: 2})}
                         </td>
-                    </tr>`;
+                    </tr>`);
                 });
-            } else {
-                html = '<tr><td colspan="5" class="p-20 text-center text-slate-300 italic font-bold uppercase tracking-widest">No matching records found.</td></tr>';
             }
-            
-            $('#report_body').html(html);
+
             $('#sum_in').text(totalIn.toLocaleString('en-US', {minimumFractionDigits: 2}));
             $('#sum_out').text(totalOut.toLocaleString('en-US', {minimumFractionDigits: 2}));
-            
+
+            if (allRows.length === 0) {
+                $('#report_body').html('<tr><td colspan="5" class="p-20 text-center text-slate-300 italic font-bold uppercase tracking-widest">No matching records found.</td></tr>');
+                $('#report-pagination').html('');
+                return;
+            }
+
+            var perPage = 10;
+            var totalPages = Math.ceil(allRows.length / perPage);
+            var curPage = 1;
+
+            function renderReportPage(page) {
+                curPage = Math.max(1, Math.min(page, totalPages));
+                var start = (curPage - 1) * perPage;
+                $('#report_body').html(allRows.slice(start, start + perPage).join(''));
+
+                var nav = '';
+                if (totalPages > 1) {
+                    var btnBase = 'px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition ';
+                    nav = '<div class="flex items-center justify-between px-6 py-4 border-t border-slate-100">';
+                    nav += '<span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Showing ' + (start+1) + '–' + Math.min(curPage*perPage, allRows.length) + ' of ' + allRows.length + '</span>';
+                    nav += '<div class="flex gap-1">';
+                    nav += '<button class="' + btnBase + (curPage===1?'bg-slate-50 text-slate-300 cursor-not-allowed':'bg-slate-100 text-slate-600 hover:bg-slate-200') + '" onclick="window.__rpg(' + (curPage-1) + ')" ' + (curPage===1?'disabled':'') + '>&lsaquo;</button>';
+                    var s = Math.max(1, curPage-2), e = Math.min(totalPages, curPage+2);
+                    for (var p = s; p <= e; p++) {
+                        nav += '<button class="' + btnBase + (p===curPage?'bg-blue-600 text-white':'bg-slate-100 text-slate-600 hover:bg-slate-200') + '" onclick="window.__rpg(' + p + ')">' + p + '</button>';
+                    }
+                    nav += '<button class="' + btnBase + (curPage===totalPages?'bg-slate-50 text-slate-300 cursor-not-allowed':'bg-slate-100 text-slate-600 hover:bg-slate-200') + '" onclick="window.__rpg(' + (curPage+1) + ')" ' + (curPage===totalPages?'disabled':'') + '>&rsaquo;</button>';
+                    nav += '</div></div>';
+                }
+                $('#report-pagination').html(nav);
+            }
+
+            window.__rpg = renderReportPage;
+            renderReportPage(1);
         }
     }, 'json');
 }

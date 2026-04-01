@@ -106,7 +106,7 @@ $stages = [1=>'Identity', 2=>'Reg Pay', 3=>'FOMEMA', 4=>'Insurance', 5=>'Levy Pa
                         <th class="p-6 text-right">Actions</th>
                     </tr>
                 </thead>
-                <tbody class="divide-y divide-slate-100">
+                <tbody id="workers-tbody" class="divide-y divide-slate-100">
                     <?php if (empty($workers)): ?>
                         <tr><td colspan="6" class="p-20 text-center text-slate-300 font-bold uppercase italic">No worker records found.</td></tr>
                     <?php else: foreach ($workers as $w): 
@@ -193,11 +193,18 @@ $stages = [1=>'Identity', 2=>'Reg Pay', 3=>'FOMEMA', 4=>'Insurance', 5=>'Levy Pa
                 </tbody>
             </table>
         </div>
+        <div id="workers-pagination"></div>
     </div>
 </div>
 
 <style>
-    .lbl { display:block; font-size:9px; font-weight:900; text-transform:uppercase; color:#94a3b8; margin-bottom:5px; margin-left: 5px; letter-spacing: 0.05em; } 
+    .lbl { display:block; font-size:9px; font-weight:900; text-transform:uppercase; color:#94a3b8; margin-bottom:5px; margin-left: 5px; letter-spacing: 0.05em; }
     .inp { width:100%; background:#f8fafc; border:none; padding:10px 16px; border-radius:12px; font-weight:bold; color:#334155; outline:none; transition:all 0.2s; box-shadow: inset 0 2px 4px 0 rgb(0 0 0 / 0.05); }
     .inp:focus { background:#fff; box-shadow:0 0 0 2px #3b82f6; }
 </style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    setupPagination({ id: 'workers', tbodyId: 'workers-tbody', navId: 'workers-pagination', perPage: 10 });
+});
+</script>

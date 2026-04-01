@@ -39,7 +39,7 @@ $users = $db->get_users();
                         <th class="p-5 md:p-8 text-right">Operations</th>
                     </tr>
                 </thead>
-                <tbody class="divide-y divide-slate-100 bg-white">
+                <tbody id="users-tbody" class="divide-y divide-slate-100 bg-white">
                     <?php foreach($users as $u): ?>
                     <tr class="hover:bg-slate-50/80 transition-all group">
                         <!-- User Identity -->
@@ -85,8 +85,15 @@ $users = $db->get_users();
                 </tbody>
             </table>
         </div>
+        <div id="users-pagination"></div>
     </div>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    setupPagination({ id: 'users', tbodyId: 'users-tbody', navId: 'users-pagination', perPage: 10 });
+});
+</script>
 
 <script>
 /**

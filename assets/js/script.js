@@ -16,6 +16,48 @@ $.ajaxSetup({
     headers: { 'X-CSRF-TOKEN': CSRF_TOKEN }
 });
 
+// =======================================================
+// 2. SHARED TABLE PAGINATION UTILITY
+// =======================================================
+function setupPagination(config) {
+    var tbody = document.getElementById(config.tbodyId);
+    var nav = document.getElementById(config.navId);
+    if (!tbody) return;
+
+    var per = config.perPage || 10;
+    var rows = Array.from(tbody.rows);
+    var total = rows.length;
+    var pages = Math.max(1, Math.ceil(total / per));
+    var cur = 1;
+
+    function goTo(p) {
+        cur = Math.max(1, Math.min(p, pages));
+        rows.forEach(function(r, i) {
+            r.style.display = (i >= (cur-1)*per && i < cur*per) ? '' : 'none';
+        });
+        if (nav) renderNav();
+    }
+
+    function renderNav() {
+        if (pages <= 1) { nav.innerHTML = ''; return; }
+        var btnBase = 'px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition ';
+        var h = '<div class="flex items-center justify-between px-6 py-4 border-t border-slate-100">';
+        h += '<span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Showing ' + ((cur-1)*per+1) + '&ndash;' + Math.min(cur*per, total) + ' of ' + total + '</span>';
+        h += '<div class="flex gap-1">';
+        h += '<button class="' + btnBase + (cur===1?'bg-slate-50 text-slate-300 cursor-not-allowed':'bg-slate-100 text-slate-600 hover:bg-slate-200') + '" onclick="window[\'__pg_' + config.id + '\'](' + (cur-1) + ')" ' + (cur===1?'disabled':'') + '>&#8249;</button>';
+        var s = Math.max(1, cur-2), e = Math.min(pages, cur+2);
+        for (var p = s; p <= e; p++) {
+            h += '<button class="' + btnBase + (p===cur?'bg-blue-600 text-white':'bg-slate-100 text-slate-600 hover:bg-slate-200') + '" onclick="window[\'__pg_' + config.id + '\'](' + p + ')">' + p + '</button>';
+        }
+        h += '<button class="' + btnBase + (cur===pages?'bg-slate-50 text-slate-300 cursor-not-allowed':'bg-slate-100 text-slate-600 hover:bg-slate-200') + '" onclick="window[\'__pg_' + config.id + '\'](' + (cur+1) + ')" ' + (cur===pages?'disabled':'') + '>&#8250;</button>';
+        h += '</div></div>';
+        nav.innerHTML = h;
+    }
+
+    window['__pg_' + config.id] = goTo;
+    goTo(1);
+}
+
 
 
 window.triggerImport = function() {

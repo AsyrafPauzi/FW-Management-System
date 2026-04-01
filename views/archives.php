@@ -106,10 +106,10 @@ $all_archives = $stmt->fetchAll();
                         <th class="p-4">Documents Proof</th><
                     </tr>
                 </thead>
-                <tbody class="divide-y divide-slate-100 text-[11px] font-bold text-slate-600">
+                <tbody id="archives-tbody" class="divide-y divide-slate-100 text-[11px] font-bold text-slate-600">
                     <?php if (empty($all_archives)): ?>
                         <tr><td colspan="28" class="p-20 text-center text-slate-300 font-bold uppercase italic">No archived records found.</td></tr>
-                    <?php else: foreach ($all_archives as $a): 
+                    <?php else: foreach ($all_archives as $a):
                         $snapshot = json_decode($a->archive_data);
                         // FIXED: Detection of nested (V4/V5) vs flat data (V3)
                         $d = isset($snapshot->worker_details) ? $snapshot->worker_details : $snapshot;
@@ -118,7 +118,7 @@ $all_archives = $stmt->fetchAll();
                         <!-- System Info -->
                         <td class="p-4 whitespace-nowrap"><?php echo date('d/m/Y H:i', strtotime($a->archive_date)); ?></td>
                         <td class="p-4 border-r">#<?php echo (int)$a->worker_id; ?></td>
-                        
+
                         <!-- Identity & Biodata -->
                         <td class="p-4 uppercase"><?php echo e($d->category ?? '-'); ?></td>
                         <td class="p-4 font-black text-blue-600"><?php echo e($a->passport_number); ?></td>
@@ -132,12 +132,12 @@ $all_archives = $stmt->fetchAll();
                         <!-- Financials -->
                         <td class="p-4 text-slate-900">MYR <?php echo number_format((float)($d->total_payable ?? 0), 2); ?></td>
                         <td class="p-4 border-r text-red-600">MYR <?php echo number_format((float)($d->balance_due ?? 0), 2); ?></td>
-                        
+
                         <!-- FOMEMA -->
                         <td class="p-4"><span class="px-2 py-0.5 rounded-full text-[9px] <?php echo (($d->fomema_status ?? '') =='Fit')?'bg-emerald-100 text-emerald-700':'bg-orange-100 text-orange-700'; ?>"><?php echo e($d->fomema_status ?? 'Pending'); ?></span></td>
                         <td class="p-4"><?php echo e($d->fomema_code ?? '-'); ?></td>
                         <td class="p-4 border-r"><?php echo format_date_my($d->fomema_expiry ?? ($d->fomema_date ?? '')); ?></td>
-                        
+
                         <!-- Insurance -->
                         <td class="p-4"><?php echo e($d->insurance_policy ?? '-'); ?></td>
                         <td class="p-4"><?php echo e($d->insurance_provider ?? '-'); ?></td>
@@ -146,13 +146,13 @@ $all_archives = $stmt->fetchAll();
                         <!-- Levy Status -->
                         <td class="p-4 uppercase text-[9px]"><?php echo e($d->levy_status ?? '-'); ?></td>
                         <td class="p-4 border-r"><?php echo e($d->levy_reference ?? '-'); ?></td>
-                        
+
                         <!-- Permit (PLKS) -->
                         <td class="p-4 uppercase text-[9px]"><?php echo e($d->permit_status ?? '-'); ?></td>
                         <td class="p-4 text-slate-900"><?php echo e($d->permit_number ?? '-'); ?></td>
                         <td class="p-4"><?php echo format_date_my($d->permit_issue ?? ''); ?></td>
                         <td class="p-4 border-r text-red-600 font-bold"><?php echo format_date_my($d->permit_expiry ?? ''); ?></td>
-                        
+
                         <!-- CIDB -->
                         <td class="p-4 text-slate-700 uppercase"><?php echo e($d->cidb_status ?? '-'); ?></td>
                         <td class="p-4 text-slate-700 uppercase"><?php echo e($d->cidb_category ?? '-'); ?></td>
@@ -173,15 +173,22 @@ $all_archives = $stmt->fetchAll();
         <?php endif; ?>
     </div>
 </td>
-                        
-                        
+
+
                     </tr>
                     <?php endforeach; endif; ?>
                 </tbody>
             </table>
+            <div id="archives-pagination"></div>
         </div>
     </div>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    setupPagination({ id: 'archives', tbodyId: 'archives-tbody', navId: 'archives-pagination', perPage: 10 });
+});
+</script>
 
 <script>
 $(document).ready(function() {
