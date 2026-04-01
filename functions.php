@@ -2,7 +2,7 @@
 /**
  * Standalone Core Logic & Security Helpers
  * Location: root/functions.php
- * Version: 4.2.2 (MySQL Strict Mode & Date Integrity Fix)
+ * Version: 5.0.0 (Validation Layer, Query Cache, Pagination)
  */
 require_once 'config.php';
 
@@ -10,51 +10,22 @@ require_once 'config.php';
 // 1. SECURITY & COMPATIBILITY HELPERS
 // ==================================================
 
-/**
- * Clean strings to prevent XSS on INPUT
- */
 function sanitize_text_field($str) {
     if (is_array($str)) return $str;
     return htmlspecialchars(strip_tags(trim($str ?? '')), ENT_QUOTES, 'UTF-8');
 }
 
-// --- PERMISSION HELPERS ---
-    function current_user_can_edit() {
-        if (!isset($_SESSION['user_id'])) return false;
-        if ($_SESSION['user_role'] === 'admin') return true; // Admin always can
-        // Fetch fresh permission from DB to be safe
-        global $db; // Assuming $db is available in global scope here, otherwise use session if stored
-        // Ideally, store this in SESSION at login, but for now we query or rely on session if we update login
-        return (isset($_SESSION['can_edit']) && $_SESSION['can_edit'] == 1);
-    }
-
-    function current_user_can_delete() {
-        if (!isset($_SESSION['user_id'])) return false;
-        if ($_SESSION['user_role'] === 'admin') return true;
-        return (isset($_SESSION['can_delete']) && $_SESSION['can_delete'] == 1);
-    }
-
-/**
- * Escape for Output (Prevents XSS on DISPLAY)
- */
 function e($str) {
     if (is_null($str)) return '';
     return htmlspecialchars($str, ENT_QUOTES, 'UTF-8');
 }
 
-/**
- * Helper for Select Dropdowns
- */
 function selected($val1, $val2, $echo = true) {
     $out = ($val1 == $val2) ? 'selected="selected"' : '';
     if($echo) echo $out;
     return $out;
 }
 
-/**
- * Date Formatter (DD/MM/YYYY)
- * Hardened to handle MySQL Strict Mode '0000-00-00' or empty values
- */
 function format_date_my($date) {
     if (!$date || $date == '0000-00-00' || $date == '1970-01-01' || $date == '0001-01-01') return '-';
     try {
@@ -66,9 +37,7 @@ function format_date_my($date) {
     }
 }
 
-/**
- * Check Permissions
- */
+// --- PERMISSION HELPERS ---
 function current_user_can_admin() {
     return (isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin');
 }
@@ -77,110 +46,187 @@ function current_user_is_staff() {
     return (isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'staff');
 }
 
+function current_user_can_edit() {
+    if (!isset($_SESSION['user_id'])) return false;
+    if ($_SESSION['user_role'] === 'admin') return true;
+    return (isset($_SESSION['can_edit']) && $_SESSION['can_edit'] == 1);
+}
+
+function current_user_can_delete() {
+    if (!isset($_SESSION['user_id'])) return false;
+    if ($_SESSION['user_role'] === 'admin') return true;
+    return (isset($_SESSION['can_delete']) && $_SESSION['can_delete'] == 1);
+}
+
+/**
+ * Centralized permission gate for API actions.
+ * Sends JSON error and exits if permission is denied.
+ */
+function require_permission($level = 'edit') {
+    $ok = false;
+    if ($level === 'admin')  $ok = current_user_can_admin();
+    elseif ($level === 'delete') $ok = current_user_can_delete();
+    else $ok = current_user_can_edit();
+
+    if (!$ok) {
+        echo json_encode(['success' => false, 'data' => 'Access Denied: Insufficient permissions.']);
+        exit;
+    }
+}
+
+// ==================================================
+// 2. INPUT VALIDATION LAYER
+// ==================================================
+
+/**
+ * Validate a single field value.
+ * Returns null on pass, or an error string on failure.
+ */
+function validate_field($value, $rules) {
+    if (in_array('required', $rules) && ($value === '' || $value === null)) {
+        return 'This field is required.';
+    }
+    if ($value === '' || $value === null) return null; // optional empty passes
+
+    if (in_array('string', $rules) && !is_string($value)) {
+        return 'Must be a string.';
+    }
+    if (isset($rules['max']) && strlen($value) > $rules['max']) {
+        return "Must not exceed {$rules['max']} characters.";
+    }
+    if (isset($rules['min']) && strlen($value) < $rules['min']) {
+        return "Must be at least {$rules['min']} characters.";
+    }
+    if (in_array('date', $rules) && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) {
+        return 'Invalid date format (expected YYYY-MM-DD).';
+    }
+    if (in_array('numeric', $rules) && !is_numeric($value)) {
+        return 'Must be a numeric value.';
+    }
+    if (in_array('positive', $rules) && floatval($value) < 0) {
+        return 'Must be a positive number.';
+    }
+    if (isset($rules['in']) && !in_array($value, $rules['in'])) {
+        return 'Invalid option selected.';
+    }
+    if (in_array('email', $rules) && !filter_var($value, FILTER_VALIDATE_EMAIL)) {
+        return 'Invalid email address.';
+    }
+    return null;
+}
+
+/**
+ * Validate a map of fields against their rules.
+ * Returns ['valid' => true] or ['valid' => false, 'errors' => [...]]
+ *
+ * Example:
+ *   validate_request([
+ *     'full_name' => ['required', 'string', 'max' => 100],
+ *     'dob'       => ['date'],
+ *   ], $_POST);
+ */
+function validate_request(array $rules_map, array $data) {
+    $errors = [];
+    foreach ($rules_map as $field => $rules) {
+        $value = $data[$field] ?? '';
+        $err = validate_field($value, $rules);
+        if ($err) $errors[$field] = $err;
+    }
+    if (!empty($errors)) {
+        return ['valid' => false, 'errors' => $errors];
+    }
+    return ['valid' => true];
+}
+
 
 
 
 // ==================================================
-// 2. DATABASE CLASS (PDO WRAPPER)
+// 3. DATABASE CLASS (PDO WRAPPER)
 // ==================================================
 
 class DB {
     public $pdo;
+    private $cache = [];
+    private $cache_ttl = 60; // seconds
 
     public function __construct($pdo) {
         $this->pdo = $pdo;
     }
-    
-    /**
-     * EXPIRY INTELLIGENCE: Scans all compliance dates
-     */
-    /**
- * UPDATED: EXPIRY INTELLIGENCE (Visa Only)
- * Location: root/functions.php
- */
-public function get_compliance_alerts() {
-    $alerts = [
-        'critical' => [], // < 30 days or Expired
-        'warning'  => [], // 30 - 60 days
-        'upcoming' => []  // 60 - 90 days
-    ];
 
-    // --- MODIFIED: Only monitor Visa Expiry ---
-    $date_fields = [
-        'visa_expiry' => 'Visa'
-    ];
+    // --------------------------------------------------
+    // CACHE HELPERS
+    // --------------------------------------------------
+    private function cache_get($key) {
+        if (isset($this->cache[$key]) && (time() - $this->cache[$key]['ts']) < $this->cache_ttl) {
+            return $this->cache[$key]['data'];
+        }
+        return null;
+    }
 
-    // Fetch only necessary fields
-    $stmt = $this->pdo->query("SELECT id, full_name, passport_number, visa_expiry FROM workers");
-    $workers = $stmt->fetchAll();
+    private function cache_set($key, $data) {
+        $this->cache[$key] = ['data' => $data, 'ts' => time()];
+    }
 
-    $now = new DateTime();
+    private function cache_flush() {
+        $this->cache = [];
+    }
 
-    foreach ($workers as $w) {
-        foreach ($date_fields as $field => $label) {
-            // Skip if no date is set
-            if (empty($w->$field) || $w->$field == '0000-00-00' || $w->$field == '1970-01-01') continue;
+    // --------------------------------------------------
+    // EXPIRY INTELLIGENCE (Visa Only)
+    // --------------------------------------------------
+    public function get_compliance_alerts() {
+        $alerts = ['critical' => [], 'warning' => [], 'upcoming' => []];
+        $date_fields = ['visa_expiry' => 'Visa'];
+        $stmt = $this->pdo->query("SELECT id, full_name, passport_number, visa_expiry FROM workers");
+        $workers = $stmt->fetchAll();
+        $now = new DateTime();
 
-            $exp = new DateTime($w->$field);
-            $diff = $now->diff($exp);
-            $days = $diff->days;
-            
-            // If the date is in the past, make days negative
-            if ($exp < $now) {
-                $days = -$days;
-            }
+        foreach ($workers as $w) {
+            foreach ($date_fields as $field => $label) {
+                if (empty($w->$field) || $w->$field == '0000-00-00' || $w->$field == '1970-01-01') continue;
+                $exp = new DateTime($w->$field);
+                $diff = $now->diff($exp);
+                $days = $diff->days;
+                if ($exp < $now) $days = -$days;
 
-            $item = [
-                'id' => $w->id,
-                'name' => $w->full_name,
-                'passport' => $w->passport_number,
-                'label' => $label,
-                'date' => $w->$field,
-                'days' => $days
-            ];
+                $item = ['id' => $w->id, 'name' => $w->full_name, 'passport' => $w->passport_number, 'label' => $label, 'date' => $w->$field, 'days' => $days];
 
-            // Categorize based on Visa urgency
-            if ($days <= 30) {
-                $alerts['critical'][] = $item;
-            } elseif ($days <= 60) {
-                $alerts['warning'][] = $item;
-            } elseif ($days <= 90) {
-                $alerts['upcoming'][] = $item;
+                if ($days <= 30)       $alerts['critical'][] = $item;
+                elseif ($days <= 60)   $alerts['warning'][]  = $item;
+                elseif ($days <= 90)   $alerts['upcoming'][] = $item;
             }
         }
+        foreach ($alerts as &$group) {
+            usort($group, function($a, $b) { return $a['days'] - $b['days']; });
+        }
+        return $alerts;
     }
 
-    // Sort groups so the most urgent appear first
-    foreach ($alerts as &$group) {
-        usort($group, function($a, $b) { return $a['days'] - $b['days']; });
-    }
-
-    return $alerts;
-}
-
-    // ==================================================
-    // 3. ANALYTICS & DASHBOARD METHODS
-    // ==================================================
-
+    // --------------------------------------------------
+    // ANALYTICS & DASHBOARD (with caching)
+    // --------------------------------------------------
     public function get_stats() {
+        $cached = $this->cache_get('stats');
+        if ($cached !== null) return $cached;
+
         $stats = [];
-        $stats['total'] = $this->pdo->query("SELECT COUNT(*) FROM workers")->fetchColumn();
-        
-        // Strict Mode Fix: Use comparison > min date instead of != 0000-00-00
-        $stats['expired'] = $this->pdo->query("SELECT COUNT(*) FROM workers WHERE permit_expiry > '1000-01-01' AND permit_expiry < CURDATE()")->fetchColumn();
-        $stats['urgent'] = $this->pdo->query("SELECT COUNT(*) FROM workers WHERE permit_expiry BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 4 MONTH)")->fetchColumn();
+        $stats['total']          = $this->pdo->query("SELECT COUNT(*) FROM workers")->fetchColumn();
+        $stats['expired']        = $this->pdo->query("SELECT COUNT(*) FROM workers WHERE permit_expiry > '1000-01-01' AND permit_expiry < CURDATE()")->fetchColumn();
+        $stats['urgent']         = $this->pdo->query("SELECT COUNT(*) FROM workers WHERE permit_expiry BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 4 MONTH)")->fetchColumn();
         $stats['fomema_pending'] = $this->pdo->query("SELECT COUNT(*) FROM workers WHERE current_stage = 3")->fetchColumn();
-        $stats['completed'] = $this->pdo->query("SELECT COUNT(*) FROM workers WHERE current_stage >= 8")->fetchColumn();
-        
+        $stats['completed']      = $this->pdo->query("SELECT COUNT(*) FROM workers WHERE current_stage >= 8")->fetchColumn();
+
         $stages = array_fill(1, 9, 0);
         $res = $this->pdo->query("SELECT current_stage, COUNT(*) as count FROM workers GROUP BY current_stage")->fetchAll();
-        foreach($res as $r) { 
+        foreach ($res as $r) {
             $idx = (int)$r->current_stage;
-            if($idx >= 1 && $idx <= 9) $stages[$idx] = (int)$r->count; 
+            if ($idx >= 1 && $idx <= 9) $stages[$idx] = (int)$r->count;
         }
         $stats['stage_dist'] = array_values($stages);
-        $stats['heatmap'] = $this->pdo->query("SELECT DATE(timestamp) as date, COUNT(*) as count FROM logs WHERE timestamp > DATE_SUB(NOW(), INTERVAL 30 DAY) GROUP BY DATE(timestamp)")->fetchAll();
-        
+        $stats['heatmap']    = $this->pdo->query("SELECT DATE(timestamp) as date, COUNT(*) as count FROM logs WHERE timestamp > DATE_SUB(NOW(), INTERVAL 30 DAY) GROUP BY DATE(timestamp)")->fetchAll();
+
+        $this->cache_set('stats', $stats);
         return $stats;
     }
 
@@ -192,45 +238,76 @@ public function get_compliance_alerts() {
     }
 
     public function get_expiring_workers($limit = 10) {
-        // Strict Mode Fix: Ensure date is valid before sorting
         $stmt = $this->pdo->prepare("SELECT * FROM workers WHERE permit_expiry > '1000-01-01' ORDER BY permit_expiry ASC LIMIT ?");
         $stmt->bindValue(1, (int)$limit, PDO::PARAM_INT);
         $stmt->execute();
         return $stmt->fetchAll();
     }
 
-    // Support Category Filtering and Expiry Sorting (STRICT MODE SAFE)
-    public function get_all_workers($search = '', $cat = '', $start_date = '', $end_date = '') {
-        $where = ["1=1"]; 
+    // --------------------------------------------------
+    // WORKER LISTING WITH PAGINATION
+    // --------------------------------------------------
+    public function get_all_workers($search = '', $cat = '', $start_date = '', $end_date = '', $stage = '', $limit = 0, $offset = 0) {
+        $where = ["1=1"];
         $params = [];
-        
+
         if ($search) {
             $terms = preg_split('/[\s,]+/', $search, -1, PREG_SPLIT_NO_EMPTY);
             $search_parts = [];
-            foreach($terms as $t) { 
-                $search_parts[] = "(passport_number LIKE ? OR full_name LIKE ?)"; 
-                $params[]="%$t%"; $params[]="%$t%"; 
+            foreach ($terms as $t) {
+                $search_parts[] = "(passport_number LIKE ? OR full_name LIKE ?)";
+                $params[] = "%$t%"; $params[] = "%$t%";
             }
             if (!empty($search_parts)) $where[] = "(" . implode(' OR ', $search_parts) . ")";
         }
 
-        if ($cat) {
-            $where[] = "category = ?";
-            $params[] = $cat;
+        if ($cat)  { $where[] = "category = ?"; $params[] = $cat; }
+        if ($stage !== '') { $where[] = "current_stage = ?"; $params[] = intval($stage); }
+
+        if (!empty($start_date) && !empty($end_date)) {
+            $where[] = "permit_expiry BETWEEN ? AND ?";
+            $params[] = $start_date; $params[] = $end_date;
         }
 
-        if (!empty($start_date) && !empty($end_date)) { 
-            $where[] = "permit_expiry BETWEEN ? AND ?"; 
-            $params[] = $start_date; $params[] = $end_date; 
+        $sql = "SELECT * FROM workers WHERE " . implode(' AND ', $where) .
+               " ORDER BY (permit_expiry IS NULL OR permit_expiry <= '1000-01-01'), permit_expiry ASC";
+
+        if ($limit > 0) {
+            $sql .= " LIMIT ? OFFSET ?";
+            $params[] = (int)$limit;
+            $params[] = (int)$offset;
         }
 
-        // Fix: Use '1000-01-01' check instead of '0000-00-00' to avoid Error 1525
-        $sql = "SELECT * FROM workers WHERE " . implode(' AND ', $where) . " 
-                ORDER BY (permit_expiry IS NULL OR permit_expiry <= '1000-01-01'), permit_expiry ASC";
-        
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute($params);
         return $stmt->fetchAll();
+    }
+
+    public function count_workers($search = '', $cat = '', $start_date = '', $end_date = '', $stage = '') {
+        $where = ["1=1"];
+        $params = [];
+
+        if ($search) {
+            $terms = preg_split('/[\s,]+/', $search, -1, PREG_SPLIT_NO_EMPTY);
+            $search_parts = [];
+            foreach ($terms as $t) {
+                $search_parts[] = "(passport_number LIKE ? OR full_name LIKE ?)";
+                $params[] = "%$t%"; $params[] = "%$t%";
+            }
+            if (!empty($search_parts)) $where[] = "(" . implode(' OR ', $search_parts) . ")";
+        }
+
+        if ($cat)  { $where[] = "category = ?"; $params[] = $cat; }
+        if ($stage !== '') { $where[] = "current_stage = ?"; $params[] = intval($stage); }
+
+        if (!empty($start_date) && !empty($end_date)) {
+            $where[] = "permit_expiry BETWEEN ? AND ?";
+            $params[] = $start_date; $params[] = $end_date;
+        }
+
+        $stmt = $this->pdo->prepare("SELECT COUNT(*) FROM workers WHERE " . implode(' AND ', $where));
+        $stmt->execute($params);
+        return (int)$stmt->fetchColumn();
     }
 
     public function get_worker($id) {
@@ -239,10 +316,9 @@ public function get_compliance_alerts() {
         return $stmt->fetch();
     }
 
-    // ==================================================
-    // 4. FINANCIAL & DYNAMIC PAYMENTS
-    // ==================================================
-
+    // --------------------------------------------------
+    // FINANCIAL & DYNAMIC PAYMENTS
+    // --------------------------------------------------
     public function get_additional_payments($worker_id) {
         $stmt = $this->pdo->prepare("SELECT * FROM additional_payments WHERE worker_id = ? ORDER BY payment_date ASC");
         $stmt->execute([$worker_id]);
@@ -250,134 +326,79 @@ public function get_compliance_alerts() {
     }
 
     public function update_balance($id) {
-    $w = $this->get_worker($id);
-    if (!$w) return;
-
-    $adds = $this->get_additional_payments($id);
-    
-    $total_paid = 0;
-    foreach($adds as $a) { 
-        $total_paid += (float)($a->amount ?? 0); 
+        $w = $this->get_worker($id);
+        if (!$w) return;
+        $adds = $this->get_additional_payments($id);
+        $total_paid = 0;
+        foreach ($adds as $a) { $total_paid += (float)($a->amount ?? 0); }
+        $balance = (float)($w->total_payable ?? 0) - $total_paid;
+        $stmt = $this->pdo->prepare("UPDATE workers SET balance_due = ? WHERE id = ?");
+        $stmt->execute([$balance, $id]);
     }
-    
-    $balance = (float)($w->total_payable ?? 0) - $total_paid;
-    
-    $stmt = $this->pdo->prepare("UPDATE workers SET balance_due = ? WHERE id = ?");
-    $stmt->execute([$balance, $id]);
-}
 
-    // ==================================================
-    // 5. SECURITY, FRAUD & RENEWAL LOGIC
-    // ==================================================
-
+    // --------------------------------------------------
+    // SECURITY, FRAUD & RENEWAL LOGIC
+    // --------------------------------------------------
     public function check_duplicate_passport($passport, $exclude_id = 0) {
-        // We check if the passport exists for any ID OTHER than the one we are editing
         $stmt = $this->pdo->prepare("SELECT full_name FROM workers WHERE passport_number = ? AND id != ? LIMIT 1");
         $stmt->execute([$passport, $exclude_id]);
         return $stmt->fetch();
     }
 
-   /**
- * Check if a receipt reference is already used anywhere in the system.
- * Updated for Version 4.3.0 (Consolidated dynamic payments)
- */
-public function check_global_receipt_usage($receipt) {
-    // 1. Check Additional Payments table (The dynamic rows in Step 1)
-    // We join with workers to get the owner's name for the alert popup
-    $stmt1 = $this->pdo->prepare("
-        SELECT w.id, w.full_name, w.passport_number, 'Payment List' as source 
-        FROM additional_payments ap
-        JOIN workers w ON ap.worker_id = w.id
-        WHERE ap.ref_no = ? LIMIT 1
-    ");
-    $stmt1->execute([$receipt]);
-    $res1 = $stmt1->fetch();
-    if ($res1) return $res1;
+    public function check_global_receipt_usage($receipt) {
+        $stmt1 = $this->pdo->prepare("SELECT w.id, w.full_name, w.passport_number, 'Payment List' as source FROM additional_payments ap JOIN workers w ON ap.worker_id = w.id WHERE ap.ref_no = ? LIMIT 1");
+        $stmt1->execute([$receipt]);
+        $res1 = $stmt1->fetch();
+        if ($res1) return $res1;
 
-    // 2. Check Manual Invoices / Receipts table
-    $stmt2 = $this->pdo->prepare("
-        SELECT id, client_name as full_name, doc_no as passport_number, 'Invoice History' as source 
-        FROM invoices 
-        WHERE doc_no = ? LIMIT 1
-    ");
-    $stmt2->execute([$receipt]);
-    $res2 = $stmt2->fetch();
-    if ($res2) return $res2;
+        $stmt2 = $this->pdo->prepare("SELECT id, client_name as full_name, doc_no as passport_number, 'Invoice History' as source FROM invoices WHERE doc_no = ? LIMIT 1");
+        $stmt2->execute([$receipt]);
+        $res2 = $stmt2->fetch();
+        if ($res2) return $res2;
 
-    return false;
-}
+        return false;
+    }
 
-    /**
-     * RENEWAL LOGIC: Safe Version 4.2.6
-     */
-   public function archive_and_reset_worker($id) {
+    public function archive_and_reset_worker($id) {
+        $this->pdo->beginTransaction();
         try {
             $worker = $this->get_worker($id);
-            if (!$worker) return false;
+            if (!$worker) { $this->pdo->rollBack(); return false; }
 
-            // 1. Fetch payments to include in this specific snapshot
             $adds = $this->get_additional_payments($id);
+            $snapshot = ['worker_details' => $worker, 'additional_payments' => $adds];
 
-            $snapshot =[
-                'worker_details' => $worker,
-                'additional_payments' => $adds
-            ];
-
-            // 2. INSERT into history
             $stmt = $this->pdo->prepare("INSERT INTO worker_archives (worker_id, passport_number, full_name, archive_data) VALUES (?, ?, ?, ?)");
             $stmt->execute([$worker->id, $worker->passport_number, $worker->full_name, json_encode($snapshot)]);
 
-            // 3. Reset the worker for the new year (Updated with V5 Columns)
-            $reset_data =[
-                'current_stage'      => 1,
-                // FOMEMA
-                'fomema_status'      => 'Pending', 
-                'fomema_code'        => null, 
-                'fomema_expiry'      => null, // V5 Renamed from fomema_date
-                'fomema_proof'       => null,
-                // Insurance
-                'insurance_policy'   => null, 
-                'insurance_provider' => null, 
-                'insurance_expiry'   => null,
-                // Levy
-                'levy_status'        => null,
-                'levy_reference'     => null, 
-                'levy_expiry'        => null,
-                // Permit
-                'permit_status'      => null,
-                'permit_number'      => null, 
-                'permit_issue'       => null, 
-                'permit_expiry'      => null, 
-                'epass_worker_proof' => null,
-                // CIDB
-                'cidb_status'        => 'Pending', 
-                'cidb_category'      => null,
-                'cidb_expiry'        => null, 
-                'cidb_proof'         => null,
-                // Financials
-                'balance_due'        => (float)($worker->total_payable ?? 0)
+            $reset_data = [
+                'current_stage' => 1, 'fomema_status' => 'Pending', 'fomema_code' => null,
+                'fomema_expiry' => null, 'fomema_proof' => null, 'insurance_policy' => null,
+                'insurance_provider' => null, 'insurance_expiry' => null, 'levy_status' => null,
+                'levy_reference' => null, 'levy_expiry' => null, 'permit_status' => null,
+                'permit_number' => null, 'permit_issue' => null, 'permit_expiry' => null,
+                'epass_worker_proof' => null, 'cidb_status' => 'Pending', 'cidb_category' => null,
+                'cidb_expiry' => null, 'cidb_proof' => null,
+                'balance_due' => (float)($worker->total_payable ?? 0)
             ];
 
-            // Execute the reset
             $this->save_worker($reset_data, $id);
-
-            // 4. Clear old payments from Step 1
             $this->pdo->prepare("DELETE FROM additional_payments WHERE worker_id = ?")->execute([$id]);
-
+            $this->pdo->commit();
+            $this->cache_flush();
             return true;
-
         } catch (PDOException $e) {
-            // If it crashes, throw the exact MySQL error back to api.php
+            $this->pdo->rollBack();
             throw new Exception("SQL Error: " . $e->getMessage());
         }
     }
 
-/**
-     * Delete a manual document/invoice from the database
-     */
-    public function delete_invoice($id) { 
+    // --------------------------------------------------
+    // CRUD OPERATIONS
+    // --------------------------------------------------
+    public function delete_invoice($id) {
         $stmt = $this->pdo->prepare("DELETE FROM invoices WHERE id = ?");
-        return $stmt->execute([$id]); 
+        return $stmt->execute([$id]);
     }
 
     public function get_worker_archives($worker_id) {
@@ -386,59 +407,51 @@ public function check_global_receipt_usage($receipt) {
         return $stmt->fetchAll();
     }
 
-    // ==================================================
-    // 6. CRUD OPERATIONS
-    // ==================================================
-
     public function save_worker($data, $id = 0) {
-        foreach($data as $key => $val) {
+        foreach ($data as $key => $val) {
             if ($val === '') $data[$key] = null;
         }
-
         if ($id > 0) {
-            $f = ""; $v = []; 
-            foreach ($data as $k => $val) { 
-                $f .= "$k = ?, "; 
-                $v[] = $val; 
-            }
+            $f = ""; $v = [];
+            foreach ($data as $k => $val) { $f .= "$k = ?, "; $v[] = $val; }
             $f = rtrim($f, ", "); $v[] = $id;
-            $stmt = $this->pdo->prepare("UPDATE workers SET $f WHERE id = ?");
-            $stmt->execute($v);
+            $this->pdo->prepare("UPDATE workers SET $f WHERE id = ?")->execute($v);
+            $this->cache_flush();
             return $id;
         } else {
-            $cols = implode(", ", array_keys($data)); 
+            $cols = implode(", ", array_keys($data));
             $p = implode(", ", array_fill(0, count($data), '?'));
-            $stmt = $this->pdo->prepare("INSERT INTO workers ($cols) VALUES ($p)");
-            $stmt->execute(array_values($data));
+            $this->pdo->prepare("INSERT INTO workers ($cols) VALUES ($p)")->execute(array_values($data));
+            $this->cache_flush();
             return $this->pdo->lastInsertId();
         }
     }
 
     public function delete_worker($id) {
+        $worker = $this->get_worker($id);
+        if (!$worker) return false;
+
         $stmt = $this->pdo->prepare("SELECT fomema_proof, cidb_proof FROM workers WHERE id = ?");
         $stmt->execute([$id]); $w = $stmt->fetch();
-        if ($w) { 
-            foreach ([$w->fomema_proof,$w->cidb_proof] as $f) { 
-                if ($f) { 
-                    $filename = basename($f);
-                    $path = 'uploads/'.$filename; 
-                    if(file_exists($path)) @unlink($path); 
-                } 
-            } 
+        if ($w) {
+            foreach ([$w->fomema_proof, $w->cidb_proof] as $f) {
+                if ($f) { $path = 'uploads/' . basename($f); if (file_exists($path)) @unlink($path); }
+            }
         }
         $this->pdo->prepare("DELETE FROM workers WHERE id = ?")->execute([$id]);
         $this->pdo->prepare("DELETE FROM worker_archives WHERE worker_id = ?")->execute([$id]);
         $this->pdo->prepare("DELETE FROM additional_payments WHERE worker_id = ?")->execute([$id]);
+        $this->cache_flush();
+        $this->log('DELETE_WORKER', "Deleted worker: {$worker->full_name} (Passport: {$worker->passport_number})");
+        return true;
     }
 
-    // ==================================================
-    // 7. INVOICES & SETTINGS
-    // ==================================================
-
+    // --------------------------------------------------
+    // INVOICES & SETTINGS
+    // --------------------------------------------------
     public function insert_invoice($d) {
         $c = implode(", ", array_keys($d)); $p = implode(", ", array_fill(0, count($d), '?'));
-        $stmt = $this->pdo->prepare("INSERT INTO invoices ($c) VALUES ($p)");
-        $stmt->execute(array_values($d));
+        $this->pdo->prepare("INSERT INTO invoices ($c) VALUES ($p)")->execute(array_values($d));
         return $this->pdo->lastInsertId();
     }
 
@@ -449,61 +462,68 @@ public function check_global_receipt_usage($receipt) {
     }
 
     public function get_setting($key, $default = '') {
+        $cached = $this->cache_get('setting_' . $key);
+        if ($cached !== null) return $cached;
         $stmt = $this->pdo->prepare("SELECT meta_value FROM settings WHERE meta_key = ?");
         $stmt->execute([$key]);
         $res = $stmt->fetch();
-        return $res ? $res->meta_value : $default;
+        $val = $res ? $res->meta_value : $default;
+        $this->cache_set('setting_' . $key, $val);
+        return $val;
     }
 
     public function update_setting($key, $value) {
         $stmt = $this->pdo->prepare("INSERT INTO settings (meta_key, meta_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE meta_value = ?");
-        return $stmt->execute([$key, $value, $value]);
+        $result = $stmt->execute([$key, $value, $value]);
+        $this->cache_flush();
+        return $result;
     }
 
-    // ==================================================
-    // 8. USER MANAGEMENT
-    // ==================================================
-
-    public function get_users() { 
-        return $this->pdo->query("SELECT * FROM users ORDER BY role ASC")->fetchAll(); 
+    // --------------------------------------------------
+    // USER MANAGEMENT
+    // --------------------------------------------------
+    public function get_users() {
+        return $this->pdo->query("SELECT * FROM users ORDER BY role ASC")->fetchAll();
     }
 
-    // --- UPDATED SAVE USER (With Permissions) ---
     public function save_user($u, $an, $p, $r, $can_edit, $can_delete, $id = 0) {
         $check = $this->pdo->prepare("SELECT id FROM users WHERE username = ? AND id != ?");
         $check->execute([$u, $id]);
-        if($check->fetch()) return false;
+        if ($check->fetch()) return false;
 
         $edit_val = ($can_edit === 'true' || $can_edit === 1) ? 1 : 0;
         $del_val  = ($can_delete === 'true' || $can_delete === 1) ? 1 : 0;
 
         if ($id > 0) {
-            if ($p) { 
-                $h = password_hash($p, PASSWORD_DEFAULT); 
-                $sql = "UPDATE users SET username=?, account_name=?, password=?, role=?, can_edit=?, can_delete=? WHERE id=?";
-                $this->pdo->prepare($sql)->execute([$u, $an, $h, $r, $edit_val, $del_val, $id]);
-            } else { 
-                $sql = "UPDATE users SET username=?, account_name=?, role=?, can_edit=?, can_delete=? WHERE id=?";
-                $this->pdo->prepare($sql)->execute([$u, $an, $r, $edit_val, $del_val, $id]);
+            if ($p) {
+                $h = password_hash($p, PASSWORD_DEFAULT);
+                $this->pdo->prepare("UPDATE users SET username=?, account_name=?, password=?, role=?, can_edit=?, can_delete=? WHERE id=?")->execute([$u, $an, $h, $r, $edit_val, $del_val, $id]);
+            } else {
+                $this->pdo->prepare("UPDATE users SET username=?, account_name=?, role=?, can_edit=?, can_delete=? WHERE id=?")->execute([$u, $an, $r, $edit_val, $del_val, $id]);
             }
         } else {
-            if(!$p) return false;
-            $h = password_hash($p, PASSWORD_DEFAULT); 
-            $sql = "INSERT INTO users (username, account_name, password, role, can_edit, can_delete) VALUES (?, ?, ?, ?, ?, ?)";
-            $this->pdo->prepare($sql)->execute([$u, $an, $h, $r, $edit_val, $del_val]);
+            if (!$p) return false;
+            $h = password_hash($p, PASSWORD_DEFAULT);
+            $this->pdo->prepare("INSERT INTO users (username, account_name, password, role, can_edit, can_delete) VALUES (?, ?, ?, ?, ?, ?)")->execute([$u, $an, $h, $r, $edit_val, $del_val]);
         }
         return true;
     }
 
-    public function delete_user($id) { 
-        if($id == $_SESSION['user_id']) return false; 
-        return $this->pdo->prepare("DELETE FROM users WHERE id = ?")->execute([$id]); 
+    public function delete_user($id) {
+        if ($id == $_SESSION['user_id']) return false;
+        $stmt = $this->pdo->prepare("SELECT username, role FROM users WHERE id = ?");
+        $stmt->execute([$id]);
+        $user = $stmt->fetch();
+        $result = $this->pdo->prepare("DELETE FROM users WHERE id = ?")->execute([$id]);
+        if ($result && $user) {
+            $this->log('DELETE_USER', "Deleted user: {$user->username} (Role: {$user->role})");
+        }
+        return $result;
     }
 
-    // ==================================================
-    // 9. LOGGING
-    // ==================================================
-
+    // --------------------------------------------------
+    // LOGGING
+    // --------------------------------------------------
     public function log($a, $d) {
         $stmt = $this->pdo->prepare("INSERT INTO logs (user_id, user_name, user_role, action, details) VALUES (?, ?, ?, ?, ?)");
         $stmt->execute([$_SESSION['user_id'] ?? 0, $_SESSION['user_name'] ?? 'System', $_SESSION['user_role'] ?? 'system', $a, $d]);
@@ -519,7 +539,24 @@ public function check_global_receipt_usage($receipt) {
     }
 
     public function get_total_logs() { return $this->pdo->query("SELECT COUNT(*) FROM logs")->fetchColumn(); }
+
+    // --------------------------------------------------
+    // EMAIL NOTIFICATIONS (Compliance Alerts)
+    // --------------------------------------------------
+    public function send_compliance_email($to, $subject, $body) {
+        if (empty(SMTP_FROM) || empty($to)) return false;
+        $headers  = "MIME-Version: 1.0\r\n";
+        $headers .= "Content-type: text/html; charset=UTF-8\r\n";
+        $headers .= "From: " . SMTP_FROM_NAME . " <" . SMTP_FROM . ">\r\n";
+        return mail($to, $subject, $body, $headers);
+    }
+
+    public function get_notification_email() {
+        return $this->get_setting('notification_email', '');
+    }
 }
 
-// 10. INITIALIZE DATABASE INSTANCE
+// ==================================================
+// 4. INITIALIZE DATABASE INSTANCE
+// ==================================================
 $db = new DB($pdo);

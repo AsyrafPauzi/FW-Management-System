@@ -1,15 +1,17 @@
 /**
  * FW Management System - Standalone Core Logic
  * Location: assets/js/script.js
- * Version: 4.3.0 (Delete Fix, Export Fix, Consolidated Logic)
+ * Version: 5.0.0 (Security Hardened, UX Improved)
  */
 
 // =======================================================
 // 1. GLOBAL AJAX SECURITY SETUP
 // =======================================================
 var API_URL = 'api.php';
-// Fallbacks to prevent script crashes
-if (typeof CSRF_TOKEN === 'undefined') { var CSRF_TOKEN = ''; }
+// Read CSRF token from meta tag (secure - not exposed in JS source)
+var CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]')
+    ? document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+    : '';
 if (typeof CURRENT_USER_ACCOUNT_NAME === 'undefined') { var CURRENT_USER_ACCOUNT_NAME = 'Authorized User'; }
 
 $.ajaxSetup({

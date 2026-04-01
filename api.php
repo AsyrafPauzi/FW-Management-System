@@ -2,7 +2,7 @@
 /**
  * Standalone API Handler - FWMS System
  * Location: root/api.php
- * Version: 4.2.0 (Unified Reporting, Financials & Identity)
+ * Version: 5.0.0 (Security Hardened, Validated, Transactional)
  */
 require_once 'functions.php';
 header('Content-Type: application/json');
@@ -14,64 +14,66 @@ if (!isset($_SESSION['user_id'])) {
 }
 
 // 2. CSRF Security Check
-$headers = apache_request_headers();
+$headers = function_exists('apache_request_headers') ? apache_request_headers() : [];
 $request_token = $headers['X-CSRF-TOKEN'] ?? $_POST['csrf_token'] ?? '';
-
 if (empty($_SESSION['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $request_token)) {
     echo json_encode(['success' => false, 'data' => 'Security Token Mismatch']);
     exit;
 }
 
-
 $action = $_POST['action'] ?? '';
 
 if ($action === 'get_invoice_by_no') {
     $doc_no = sanitize_text_field($_POST['doc_no'] ?? '');
+    if (empty($doc_no)) { echo json_encode(['success' => false]); exit; }
     $stmt = $db->pdo->prepare("SELECT * FROM invoices WHERE doc_no = ? LIMIT 1");
     $stmt->execute([$doc_no]);
     $res = $stmt->fetch();
-
-    if ($res) {
-        echo json_encode(['success' => true, 'data' => $res]);
-    } else {
-        echo json_encode(['success' => false]);
-    }
+    echo json_encode($res ? ['success' => true, 'data' => $res] : ['success' => false]);
     exit;
 }
 
 if ($action === 'bulk_import_workers') {
-    if ($_SESSION['user_role'] !== 'admin') exit;
-    
+    require_permission('admin');
     $workers = json_decode($_POST['workers'], true);
-    $count = 0;
-    $duplicates = 0;
+    if (!is_array($workers)) { echo json_encode(['success' => false, 'data' => 'Invalid workers data.']); exit; }
 
-    foreach ($workers as $w) {
-        $data = [
-            'passport_number' => sanitize_text_field($w['Passport'] ?? ''),
-            'full_name'       => sanitize_text_field($w['Name'] ?? ''),
-            'category'        => sanitize_text_field($w['Category'] ?? 'Calling Visa'),
-            'kwsp_no'         => sanitize_text_field($w['KWSP'] ?? ''),
-            'nationality'     => sanitize_text_field($w['Nationality'] ?? 'Bangladesh'),
-            'gender'          => sanitize_text_field($w['Gender'] ?? 'Male'),
-            'dob'             => sanitize_text_field($w['BirthDate'] ?? null),
-            'passport_expiry' => sanitize_text_field($w['PassportExpiry'] ?? null),
-            'total_payable'   => floatval($w['TotalPayable'] ?? 0),
-            'current_stage'   => 1,
-            'created_by'      => $_SESSION['user_name']
-        ];
+    $count = 0; $duplicates = 0; $errors = [];
+    $db->pdo->beginTransaction();
+    try {
+        foreach ($workers as $idx => $w) {
+            $passport = sanitize_text_field($w['Passport'] ?? '');
+            if (empty($passport)) continue;
 
-        if(!empty($data['passport_number'])) {
-            $exists = $db->check_duplicate_passport($data['passport_number']);
-            if(!$exists) {
+            $data = [
+                'passport_number' => $passport,
+                'full_name'       => sanitize_text_field($w['Name'] ?? ''),
+                'category'        => sanitize_text_field($w['Category'] ?? 'Calling Visa'),
+                'kwsp_no'         => sanitize_text_field($w['KWSP'] ?? ''),
+                'nationality'     => sanitize_text_field($w['Nationality'] ?? 'Bangladesh'),
+                'gender'          => sanitize_text_field($w['Gender'] ?? 'Male'),
+                'dob'             => ($w['BirthDate'] ?? '') ?: null,
+                'passport_expiry' => ($w['PassportExpiry'] ?? '') ?: null,
+                'total_payable'   => floatval($w['TotalPayable'] ?? 0),
+                'current_stage'   => 1,
+                'created_by'      => $_SESSION['user_name']
+            ];
+
+            if ($db->check_duplicate_passport($passport)) {
+                $duplicates++;
+            } else {
                 $new_id = $db->save_worker($data, 0);
-                // Initial balance set
                 $db->update_balance($new_id);
                 $count++;
-            } else { $duplicates++; }
+            }
         }
+        $db->pdo->commit();
+        $db->log('BULK_IMPORT', "$count workers imported, $duplicates skipped.");
+        echo json_encode(['success' => true, 'data' => "$count imported. $duplicates skipped."]);
+    } catch (Exception $e) {
+        $db->pdo->rollBack();
+        echo json_encode(['success' => false, 'data' => 'Import failed: ' . $e->getMessage()]);
     }
-    echo json_encode(['success' => true, 'data' => $count . " imported. " . $duplicates . " skipped."]);
     exit;
 }
 
@@ -80,6 +82,7 @@ if ($action === 'bulk_import_workers') {
 // =======================================================
 
 if ($action === 'save_worker') {
+    require_permission('edit');
     try {
         $id = intval($_POST['worker_id']);
         $passport = sanitize_text_field($_POST['passport_number'] ?? '');
@@ -226,64 +229,52 @@ if ($action === 'save_worker') {
 
 if ($action === 'get_report') {
     try {
-        $type = $_POST['type'] ?? 'daily'; // 'daily' or 'monthly'
-        $date = $_POST['date'] ?? date('Y-m-d');
-        $month = $_POST['month'] ?? date('m');
-        $year = $_POST['year'] ?? date('Y');
-        $filter_val = $_POST['category'] ?? ''; // Filter can be Doc Type (INV/PV/OR) or Worker Category
+        $allowed_types = ['daily', 'monthly'];
+        $allowed_doc_types = ['Invoice', 'Official Receipt', 'Payment Voucher', 'Refund Receipt'];
+        $allowed_cats = ['Calling Visa', 'Programme', 'Tukar Majikan'];
 
-        $data = [];
+        $type       = in_array($_POST['type'] ?? '', $allowed_types) ? $_POST['type'] : 'daily';
+        $date       = preg_match('/^\d{4}-\d{2}-\d{2}$/', $_POST['date'] ?? '') ? $_POST['date'] : date('Y-m-d');
+        $month      = intval($_POST['month'] ?? date('m'));
+        $year       = intval($_POST['year'] ?? date('Y'));
+        $filter_val = sanitize_text_field($_POST['category'] ?? '');
 
-        // --- PART A: MANUAL DOCUMENTS (from invoices table) ---
-        $sql1 = "SELECT doc_no, type as doc_type, client_name, amount, invoice_date as pdate, 'Manual Gen' as source, '' as worker_cat 
-                 FROM invoices WHERE 1=1 ";
-        
-        if($type == 'daily') {
-            $sql1 .= "AND invoice_date = '$date' ";
+        // --- PART A: MANUAL DOCUMENTS ---
+        $params1 = [];
+        $sql1_where = "WHERE 1=1 ";
+        if ($type == 'daily') {
+            $sql1_where .= "AND invoice_date = ? "; $params1[] = $date;
         } else {
-            $sql1 .= "AND MONTH(invoice_date) = '$month' AND YEAR(invoice_date) = '$year' ";
+            $sql1_where .= "AND MONTH(invoice_date) = ? AND YEAR(invoice_date) = ? "; $params1[] = $month; $params1[] = $year;
         }
-        
-        // If the user filtered by a specific document type (Invoice, Official Receipt, Payment Voucher)
-if(in_array($filter_val, ['Invoice', 'Official Receipt', 'Payment Voucher', 'Refund Receipt'])) {
-    $sql1 .= "AND type = '$filter_val' ";
-}
+        if (in_array($filter_val, $allowed_doc_types)) {
+            $sql1_where .= "AND type = ? "; $params1[] = $filter_val;
+        }
+        $stmt1 = $db->pdo->prepare("SELECT doc_no, type as doc_type, client_name, amount, invoice_date as pdate, 'Manual Gen' as source, '' as worker_cat FROM invoices $sql1_where");
+        $stmt1->execute($params1);
+        $manual_docs = $stmt1->fetchAll(PDO::FETCH_ASSOC);
 
-        $manual_docs = $db->pdo->query($sql1)->fetchAll(PDO::FETCH_ASSOC);
-
-        // --- PART B: WIZARD PAYMENTS (from additional_payments table only) ---
+        // --- PART B: WIZARD PAYMENTS ---
         $wizard_data = [];
-        
-        // We only show wizard payments if the filter is empty, or specifically "Official Receipt",
-        // or if the filter is a Worker Category (Calling Visa, etc.)
-        if(!$filter_val || $filter_val == 'Official Receipt' || !in_array($filter_val, ['Invoice', 'Payment Voucher'])) {
-            
-            // Check if filter_val is a specific Worker Category
-            $cat_match = (in_array($filter_val, ['Calling Visa', 'Programme', 'Tukar Majikan'])) ? $filter_val : '';
-
-            $sqlW = "SELECT w.passport_number as doc_no, ap.description as doc_type, w.full_name as client_name, ap.amount, ap.payment_date as pdate, 'Wizard' as source, w.category as worker_cat 
-                     FROM additional_payments ap 
-                     JOIN workers w ON ap.worker_id = w.id 
-                     WHERE ap.amount > 0 ";
-
-            if($type == 'daily') {
-                $sqlW .= "AND ap.payment_date = '$date' ";
+        if (!$filter_val || $filter_val == 'Official Receipt' || !in_array($filter_val, ['Invoice', 'Payment Voucher'])) {
+            $cat_match = in_array($filter_val, $allowed_cats) ? $filter_val : '';
+            $paramsW = [];
+            $sqlW_where = "WHERE ap.amount > 0 ";
+            if ($type == 'daily') {
+                $sqlW_where .= "AND ap.payment_date = ? "; $paramsW[] = $date;
             } else {
-                $sqlW .= "AND MONTH(ap.payment_date) = '$month' AND YEAR(ap.payment_date) = '$year' ";
+                $sqlW_where .= "AND MONTH(ap.payment_date) = ? AND YEAR(ap.payment_date) = ? "; $paramsW[] = $month; $paramsW[] = $year;
             }
-
-            if($cat_match) {
-                $sqlW .= "AND w.category = '$cat_match' ";
+            if ($cat_match) {
+                $sqlW_where .= "AND w.category = ? "; $paramsW[] = $cat_match;
             }
-
-            $wizard_data = $db->pdo->query($sqlW)->fetchAll(PDO::FETCH_ASSOC);
+            $stmtW = $db->pdo->prepare("SELECT w.passport_number as doc_no, ap.description as doc_type, w.full_name as client_name, ap.amount, ap.payment_date as pdate, 'Wizard' as source, w.category as worker_cat FROM additional_payments ap JOIN workers w ON ap.worker_id = w.id $sqlW_where");
+            $stmtW->execute($paramsW);
+            $wizard_data = $stmtW->fetchAll(PDO::FETCH_ASSOC);
         }
 
-        // Merge both sources
         $final_data = array_merge($manual_docs, $wizard_data);
-
         echo json_encode(['success' => true, 'data' => $final_data]);
-
     } catch (Exception $e) {
         echo json_encode(['success' => false, 'data' => $e->getMessage()]);
     }
@@ -324,12 +315,13 @@ if ($action === 'update_personal_profile') {
 // =======================================================
 
 if ($action === 'archive_worker') {
+    require_permission('edit');
     $id = intval($_POST['id'] ?? 0);
-    if ($id <= 0) { 
-        echo json_encode(['success' => false, 'data' => 'Invalid Worker ID']); 
-        exit; 
+    if ($id <= 0) {
+        echo json_encode(['success' => false, 'data' => 'Invalid Worker ID']);
+        exit;
     }
-    
+
     try {
         $success = $db->archive_and_reset_worker($id);
         if ($success) {
@@ -339,24 +331,22 @@ if ($action === 'archive_worker') {
             echo json_encode(['success' => false, 'data' => 'Archive process returned false.']);
         }
     } catch (Exception $e) {
-        // This will send the EXACT SQL error to the red popup
         echo json_encode(['success' => false, 'data' => $e->getMessage()]);
     }
     exit;
 }
 
 if ($action === 'download_backup') {
-    if ($_SESSION['user_role'] !== 'admin') exit;
-    
+    require_permission('admin');
+
     $tables = ['settings', 'users', 'workers', 'invoices', 'logs', 'worker_archives', 'additional_payments'];
     $output = "-- FWMS System Backup\n-- Date: " . date('Y-m-d H:i:s') . "\n\n";
 
     foreach ($tables as $table) {
         $stmt = $db->pdo->query("SELECT * FROM $table");
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        
+
         $output .= "DROP TABLE IF EXISTS `$table`;\n";
-        // Get Create Table Syntax
         $create = $db->pdo->query("SHOW CREATE TABLE $table")->fetch(PDO::FETCH_ASSOC);
         $output .= $create['Create Table'] . ";\n\n";
 
@@ -381,19 +371,28 @@ if ($action === 'download_backup') {
 // =======================================================
 
 if ($action === 'save_user') {
-    if ($_SESSION['user_role'] !== 'admin') exit;
-    
-    // Capture permission flags
-    $can_edit = $_POST['can_edit'] ?? 0;
+    require_permission('admin');
+
+    $validation = validate_request([
+        'username'     => ['required', 'string', 'max:80'],
+        'account_name' => ['required', 'string', 'max:120'],
+        'role'         => ['required', 'string', 'in:admin,editor,viewer'],
+    ], $_POST);
+    if (!$validation['valid']) {
+        echo json_encode(['success' => false, 'data' => implode(' ', $validation['errors'])]);
+        exit;
+    }
+
+    $can_edit   = $_POST['can_edit'] ?? 0;
     $can_delete = $_POST['can_delete'] ?? 0;
 
     $success = $db->save_user(
-        $_POST['username'], 
-        $_POST['account_name'], 
-        $_POST['password'], 
-        $_POST['role'], 
-        $can_edit, 
-        $can_delete, 
+        $_POST['username'],
+        $_POST['account_name'],
+        $_POST['password'],
+        $_POST['role'],
+        $can_edit,
+        $can_delete,
         $_POST['id']
     );
     echo json_encode(['success' => $success]);
@@ -401,25 +400,39 @@ if ($action === 'save_user') {
 }
 
 if ($action === 'delete_worker') {
-    if ($_SESSION['user_role'] !== 'admin') { echo json_encode(['success'=>false, 'data'=>'Admin access required']); exit; }
+    require_permission('delete');
     $db->delete_worker(intval($_POST['id']));
     echo json_encode(['success' => true]);
     exit;
 }
 
 if ($action === 'delete_user') {
-    if ($_SESSION['user_role'] !== 'admin') exit;
+    require_permission('admin');
     $res = $db->delete_user($_POST['id']);
     echo json_encode(['success' => !!$res]);
     exit;
 }
 
 if ($action === 'save_invoice') {
+    require_permission('edit');
+
+    $validation = validate_request([
+        'doc_no' => ['required', 'string', 'max:50'],
+        'type'   => ['required', 'string'],
+        'client' => ['required', 'string', 'max:200'],
+        'amount' => ['required', 'numeric', 'positive'],
+        'date'   => ['required', 'date'],
+    ], $_POST);
+    if (!$validation['valid']) {
+        echo json_encode(['success' => false, 'data' => implode(' ', $validation['errors'])]);
+        exit;
+    }
+
     $data = [
         'doc_no'       => sanitize_text_field($_POST['doc_no']),
         'type'         => sanitize_text_field($_POST['type']),
         'client_name'  => sanitize_text_field($_POST['client']),
-        'description'  => stripslashes($_POST['items_json']), 
+        'description'  => stripslashes($_POST['items_json']),
         'amount'       => floatval($_POST['amount']),
         'invoice_date' => sanitize_text_field($_POST['date']),
         'created_by'   => $_SESSION['user_name']
@@ -431,11 +444,7 @@ if ($action === 'save_invoice') {
 }
 
 if ($action === 'delete_invoice') {
-    // Only Admin can delete financial records
-    if ($_SESSION['user_role'] !== 'admin') {
-        echo json_encode(['success' => false, 'data' => 'Access Denied: Admin only.']);
-        exit;
-    }
+    require_permission('admin');
 
     $id = intval($_POST['id'] ?? 0);
     if ($id > 0) {
@@ -457,9 +466,6 @@ if ($action === 'check_receipt') {
     $receipt = sanitize_text_field($_POST['receipt'] ?? '');
     $exclude_id = intval($_POST['exclude_id'] ?? 0);
 
-   
-
-    // 2. Check Additional Payments table (Across ALL workers)
     $stmt2 = $db->pdo->prepare("SELECT w.full_name FROM additional_payments ap JOIN workers w ON ap.worker_id = w.id WHERE ap.description = ? AND ap.worker_id != ? LIMIT 1");
     $stmt2->execute([$receipt, $exclude_id]);
     $res2 = $stmt2->fetch();
@@ -473,7 +479,7 @@ if ($action === 'check_receipt') {
 }
 
 if ($action === 'save_settings') {
-    if ($_SESSION['user_role'] !== 'admin') exit;
+    require_permission('admin');
     $db->update_setting('company_name', sanitize_text_field($_POST['c_name']));
     if (!empty($_FILES['c_logo_file']['name'])) {
         $ext = strtolower(pathinfo($_FILES['c_logo_file']['name'], PATHINFO_EXTENSION));
@@ -487,14 +493,14 @@ if ($action === 'save_settings') {
 }
 
 if ($action === 'export_data') {
-    // Map the keys sent by JavaScript to the variables expected by the DB function
     $search = sanitize_text_field($_POST['search'] ?? '');
-    $cat    = sanitize_text_field($_POST['category'] ?? ''); 
+    $cat    = sanitize_text_field($_POST['category'] ?? '');
     $start  = sanitize_text_field($_POST['start_date'] ?? '');
     $end    = sanitize_text_field($_POST['end_date'] ?? '');
-    
-    $workers = $db->get_all_workers($search, $cat, $start, $end);
-    
+    $stage  = intval($_POST['stage'] ?? 0);
+
+    $workers = $db->get_all_workers($search, $cat, $start, $end, $stage);
+
     if (empty($workers)) {
         echo json_encode(['success' => false, 'data' => 'No records found to export.']);
         exit;
@@ -520,6 +526,7 @@ if ($action === 'export_data') {
 // ARCHIVE MASTER EXPORT (All 8 Steps + Dynamic Payments)
 // =======================================================
 if ($action === 'export_archives') {
+    require_permission('admin');
     try {
         $search = sanitize_text_field($_POST['search'] ?? '');
         $start = sanitize_text_field($_POST['start_date'] ?? '');

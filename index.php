@@ -35,7 +35,10 @@ $site_logo = $db->get_setting('company_logo', '');
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo e($site_title); ?> | Portal</title>
-    
+
+    <!-- CSRF Meta Tag (read by JS instead of inline variable) -->
+    <meta name="csrf-token" content="<?php echo $_SESSION['csrf_token']; ?>">
+
     <!-- External Assets -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
@@ -45,11 +48,10 @@ $site_logo = $db->get_setting('company_logo', '');
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
     <script src="https://cdn.sheetjs.com/xlsx-0.19.3/package/dist/xlsx.full.min.js"></script>
     <link rel="stylesheet" href="assets/css/style.css">
-    
+
     <script>
         // Global Constants for AJAX and PDF Generation
         var API_URL = 'api.php';
-        var CSRF_TOKEN = '<?php echo $_SESSION['csrf_token']; ?>';
         var CURRENT_USER_ACCOUNT_NAME = '<?php echo e($user_account_name); ?>';
     var USER_ROLE = '<?php echo $_SESSION['user_role']; ?>'; // <--- ADD THIS LINE
     </script>

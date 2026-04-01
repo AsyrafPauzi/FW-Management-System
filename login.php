@@ -2,7 +2,7 @@
 /**
  * Hardened Login Handler - FWMS
  * Location: root/login.php
- * Version: 3.0.0 (Security Hardened)
+ * Version: 4.0.0 (Rate-Limited, Security Hardened)
  */
 require_once 'config.php';
 
@@ -14,41 +14,71 @@ if (isset($_SESSION['user_id'])) {
 
 $error = '';
 
+// ==================================================
+// BRUTE-FORCE PROTECTION
+// ==================================================
+define('MAX_LOGIN_ATTEMPTS', 5);
+define('LOCKOUT_SECONDS', 900); // 15 minutes
+
+$ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+$attempt_key = 'login_attempts_' . md5($ip);
+$lockout_key = 'login_lockout_' . md5($ip);
+
+if (!isset($_SESSION[$attempt_key]))  $_SESSION[$attempt_key]  = 0;
+if (!isset($_SESSION[$lockout_key]))  $_SESSION[$lockout_key]   = 0;
+
+$is_locked_out = ($_SESSION[$lockout_key] > time());
+$remaining_lockout = max(0, $_SESSION[$lockout_key] - time());
+
 // 2. Handle Login Request
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    
-    // SECURITY: Verify CSRF Token
-    $token = $_POST['csrf_token'] ?? '';
-    if (!hash_equals($_SESSION['csrf_token'], $token)) {
-        die("Security Check Failed: Invalid CSRF Token.");
-    }
 
-    $username = trim($_POST['username'] ?? '');
-    $password = $_POST['password'] ?? '';
-
-    if (empty($username) || empty($password)) {
-        $error = "Please enter both username and password.";
+    if ($is_locked_out) {
+        $error = "Too many failed attempts. Please wait " . ceil($remaining_lockout / 60) . " minute(s).";
     } else {
-        // Fetch user using the established PDO instance
-        $stmt = $pdo->prepare("SELECT * FROM users WHERE username = ?");
-        $stmt->execute([$username]);
-        $user = $stmt->fetch();
+        // SECURITY: Verify CSRF Token
+        $token = $_POST['csrf_token'] ?? '';
+        if (!hash_equals($_SESSION['csrf_token'], $token)) {
+            die("Security Check Failed: Invalid CSRF Token.");
+        }
 
-        if ($user && password_verify($password, $user->password)) {
-        // SECURITY: Regenerate Session ID
-        session_regenerate_id(true);
-        
-        $_SESSION['user_id'] = (int)$user->id;
-        $_SESSION['user_name'] = $user->username;
-        $_SESSION['user_role'] = $user->role;
-        
-        // --- NEW: Load Permissions ---
-        $_SESSION['can_edit'] = $user->can_edit;
-        $_SESSION['can_delete'] = $user->can_delete;
-        
-        header("Location: index.php");
-        exit;
-    }
+        $username = trim($_POST['username'] ?? '');
+        $password = $_POST['password'] ?? '';
+
+        if (empty($username) || empty($password)) {
+            $error = "Please enter both username and password.";
+        } else {
+            $stmt = $pdo->prepare("SELECT * FROM users WHERE username = ?");
+            $stmt->execute([$username]);
+            $user = $stmt->fetch();
+
+            if ($user && password_verify($password, $user->password)) {
+                // SUCCESS - reset attempt counter, regenerate session
+                $_SESSION[$attempt_key] = 0;
+                $_SESSION[$lockout_key] = 0;
+                session_regenerate_id(true);
+
+                $_SESSION['user_id']   = (int)$user->id;
+                $_SESSION['user_name'] = $user->username;
+                $_SESSION['user_role'] = $user->role;
+                $_SESSION['can_edit']  = $user->can_edit;
+                $_SESSION['can_delete']= $user->can_delete;
+
+                header("Location: index.php");
+                exit;
+            } else {
+                // FAILED - increment counter
+                $_SESSION[$attempt_key]++;
+                $attempts_left = MAX_LOGIN_ATTEMPTS - $_SESSION[$attempt_key];
+
+                if ($_SESSION[$attempt_key] >= MAX_LOGIN_ATTEMPTS) {
+                    $_SESSION[$lockout_key] = time() + LOCKOUT_SECONDS;
+                    $error = "Account temporarily locked after " . MAX_LOGIN_ATTEMPTS . " failed attempts. Try again in 15 minutes.";
+                } else {
+                    $error = "Invalid username or password. " . max(0, $attempts_left) . " attempt(s) remaining.";
+                }
+            }
+        }
     }
 }
 ?>
@@ -91,38 +121,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <?php endif; ?>
 
         <!-- Form -->
-        <form method="POST" class="space-y-6">
+        <form method="POST" class="space-y-6" id="loginForm" onsubmit="handleLoginSubmit(this)">
             <!-- CSRF Token Hidden Field -->
             <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
 
             <div class="group">
                 <label class="block text-[10px] font-black uppercase text-slate-400 mb-2 tracking-widest ml-2 group-focus-within:text-blue-500 transition-colors">Username</label>
-                <input type="text" name="username" 
-                    class="w-full bg-slate-50 border-none p-4 rounded-2xl focus:ring-4 focus:ring-blue-50 transition-all font-bold text-slate-700 shadow-inner outline-none" 
-                    placeholder="Enter identification" 
-                    required autofocus>
+                <input type="text" name="username"
+                    class="w-full bg-slate-50 border-none p-4 rounded-2xl focus:ring-4 focus:ring-blue-50 transition-all font-bold text-slate-700 shadow-inner outline-none"
+                    placeholder="Enter identification"
+                    <?php echo $is_locked_out ? 'disabled' : 'required autofocus'; ?>>
             </div>
 
             <div class="group">
                 <label class="block text-[10px] font-black uppercase text-slate-400 mb-2 tracking-widest ml-2 group-focus-within:text-blue-500 transition-colors">Security Password</label>
-                <input type="password" name="password" 
-                    class="w-full bg-slate-50 border-none p-4 rounded-2xl focus:ring-4 focus:ring-blue-50 transition-all font-bold text-slate-700 shadow-inner outline-none" 
-                    placeholder="••••••••" 
-                    required>
+                <input type="password" name="password"
+                    class="w-full bg-slate-50 border-none p-4 rounded-2xl focus:ring-4 focus:ring-blue-50 transition-all font-bold text-slate-700 shadow-inner outline-none"
+                    placeholder="••••••••"
+                    <?php echo $is_locked_out ? 'disabled' : 'required'; ?>>
             </div>
 
-            <button type="submit" 
-                class="w-full bg-slate-900 text-white py-5 rounded-2xl hover:bg-blue-600 transition-all font-black uppercase text-xs tracking-widest shadow-xl shadow-slate-200 transform active:scale-95">
+            <button type="submit" id="loginBtn"
+                class="w-full bg-slate-900 text-white py-5 rounded-2xl hover:bg-blue-600 transition-all font-black uppercase text-xs tracking-widest shadow-xl shadow-slate-200 transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                <?php echo $is_locked_out ? 'disabled' : ''; ?>>
                 Sign In to Portal
             </button>
         </form>
-        
+
         <div class="mt-10 pt-6 border-t border-slate-100">
             <p class="text-center text-[9px] text-slate-300 uppercase font-black tracking-[0.3em]">
-                Security Protocol v3.0 Enabled
+                Security Protocol v4.0 Enabled
             </p>
         </div>
     </div>
 
+    <script>
+        function handleLoginSubmit(form) {
+            var btn = document.getElementById('loginBtn');
+            btn.disabled = true;
+            btn.textContent = 'Authenticating...';
+        }
+    </script>
 </body>
 </html>

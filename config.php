@@ -2,50 +2,69 @@
 /**
  * System Configuration & Global Security
  * Location: root/config.php
- * Version: 3.0.0 (Hardened)
+ * Version: 4.0.0 (ENV-Hardened)
  */
- session_set_cookie_params(['httponly' => true, 'secure' => true, 'samesite' => 'Strict']);
+session_set_cookie_params(['httponly' => true, 'secure' => true, 'samesite' => 'Strict']);
 session_start();
 
-// 1. DATABASE CREDENTIALS
-define('DB_HOST', 'localhost');
-define('DB_USER', 'agdsport_fwms_db');
-define('DB_PASS', '_pkxJ1+c$c!84WkS');
-define('DB_NAME', 'agdsport_fwms_db');
-
-// 2. DOMAIN CONFIGURATION
-define('BASE_URL', 'https://internal.agdsports.com/'); 
-
-// 3. CSRF TOKEN GENERATION
-// Generates a cryptographically secure token if one doesn't exist for the session
-if (empty($_SESSION['csrf_token'])) {
-    if (function_exists('random_bytes')) {
-        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
-    } else {
-        // Fallback for older PHP versions
-        $_SESSION['csrf_token'] = bin2hex(openssl_random_pseudo_bytes(32));
+// ==================================================
+// 1. LOAD ENVIRONMENT VARIABLES FROM .env
+// ==================================================
+function load_env($path) {
+    if (!file_exists($path)) return;
+    $lines = file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    foreach ($lines as $line) {
+        if (strpos(trim($line), '#') === 0) continue;
+        if (strpos($line, '=') === false) continue;
+        [$key, $value] = explode('=', $line, 2);
+        $key   = trim($key);
+        $value = trim($value);
+        if (!empty($key) && !defined($key)) {
+            define($key, $value);
+            putenv("$key=$value");
+        }
     }
 }
+load_env(__DIR__ . '/.env');
 
+// ==================================================
+// 2. DEFINE CONSTANTS (fallback if .env missing)
+// ==================================================
+if (!defined('DB_HOST'))   define('DB_HOST',   'localhost');
+if (!defined('DB_USER'))   define('DB_USER',   '');
+if (!defined('DB_PASS'))   define('DB_PASS',   '');
+if (!defined('DB_NAME'))   define('DB_NAME',   '');
+if (!defined('BASE_URL'))  define('BASE_URL',  'http://localhost/');
+if (!defined('SMTP_HOST')) define('SMTP_HOST', '');
+if (!defined('SMTP_PORT')) define('SMTP_PORT', '587');
+if (!defined('SMTP_USER')) define('SMTP_USER', '');
+if (!defined('SMTP_PASS')) define('SMTP_PASS', '');
+if (!defined('SMTP_FROM')) define('SMTP_FROM', '');
+if (!defined('SMTP_FROM_NAME')) define('SMTP_FROM_NAME', 'FWMS System');
+if (!defined('APP_ENV'))   define('APP_ENV',   'production');
+
+// ==================================================
+// 3. CSRF TOKEN GENERATION
+// ==================================================
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+
+// ==================================================
 // 4. DATABASE CONNECTION
+// ==================================================
 try {
-    // We include charset=utf8mb4 in the DSN for better security and emoji support
     $dsn = "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=utf8mb4";
-    
     $pdo = new PDO($dsn, DB_USER, DB_PASS);
-    
-    // Set Error Mode to Exception so we can catch connection issues
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    
-    // Set Default Fetch Mode to Object for cleaner code ($user->name instead of $user['name'])
     $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_OBJ);
-    
-    // Disable Emulated Prepares to ensure the database handles the security of placeholders
     $pdo->setAttribute(PDO::ATTR_EMULATE_PREPARES, false);
-
 } catch (PDOException $e) {
-    // If connection fails, show a clean error message without leaking database details
-    error_log("Connection Error: " . $e->getMessage()); // Logs the error internally
-    die("<h3>System Error</h3><p>Could not connect to the database. Please check your system configuration settings.</p>");
+    error_log("DB Connection Error: " . $e->getMessage());
+    if (APP_ENV === 'production') {
+        die("<h3>System Error</h3><p>Could not connect to the database. Please contact your administrator.</p>");
+    } else {
+        die("<h3>DB Error</h3><p>" . htmlspecialchars($e->getMessage()) . "</p>");
+    }
 }
 ?>
