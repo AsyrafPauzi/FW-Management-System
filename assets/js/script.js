@@ -425,10 +425,10 @@ window.renewWorker = function(id, name) {
  */
 window.switchTab = function(step) {
     if (step == 6) step = 7;
-    var isAdminUser = (window.isAdmin === true || window.isAdmin === 'true');
+    var wizardFullAccess = (window.wizardFullAccess === true || window.wizardFullAccess === 'true');
     var isForceEditMode = (window.isForceEdit === true || window.isForceEdit === 'true');
     var isFullDone = (window.isFullyCompleted === true || window.isFullyCompleted === 'true');
-    var maxReach = (isAdminUser || isForceEditMode || isFullDone) ? 8 : window.maxWorkerStage;
+    var maxReach = (wizardFullAccess || isFullDone) ? 8 : window.maxWorkerStage;
     
     if (step > maxReach) return;
 
@@ -438,7 +438,7 @@ window.switchTab = function(step) {
     if(target) target.classList.remove('hidden-step');
     $('#fws-btn-prev').toggle(step > 1);
 
-    if (window.isAdmin || window.isForceEdit) { $('#fws-action-group').show(); $('#fws-nav-group').hide(); }
+    if (wizardFullAccess || isForceEditMode) { $('#fws-action-group').show(); $('#fws-nav-group').hide(); }
     else {
         var isPastStep = (step < window.maxWorkerStage || isFullDone);
         if (isPastStep) { $('#fws-action-group').hide(); $('#fws-nav-group').show(); }

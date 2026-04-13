@@ -138,8 +138,10 @@ $stages = [1=>'Identity', 2=>'Reg Pay', 3=>'FOMEMA', 4=>'Insurance', 5=>'Levy Pa
                     ?>
                         <tr class="hover:bg-slate-50 transition-all group">
                             <td class="p-6">
-                                <div class="font-black text-slate-800 text-sm uppercase group-hover:text-blue-600 transition"><?php echo e($w->passport_number); ?></div>
-                                <div class="text-slate-400 text-[9px] font-black uppercase"><?php echo e($w->full_name); ?></div>
+                                <a href="?page=wizard&id=<?php echo (int)$w->id; ?>" class="block focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded-lg -m-1 p-1">
+                                    <div class="font-black text-slate-800 text-sm uppercase group-hover:text-blue-600 transition hover:text-blue-600"><?php echo e($w->passport_number); ?></div>
+                                    <div class="text-slate-400 text-[9px] font-black uppercase group-hover:text-slate-600"><?php echo e($w->full_name); ?></div>
+                                </a>
                             </td>
                             <td class="p-6">
                                 <span class="bg-slate-100 text-slate-600 px-3 py-1 rounded-lg text-[9px] font-black border border-slate-200 uppercase"><?php echo e($w->category ?? 'General'); ?></span>

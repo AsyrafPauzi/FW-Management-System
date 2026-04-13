@@ -437,9 +437,14 @@ if ($action === 'save_invoice') {
         'invoice_date' => sanitize_text_field($_POST['date']),
         'created_by'   => $_SESSION['user_name']
     ];
-    $id = intval($_POST['id']);
-    $res = ($id > 0) ? $db->update_invoice($data, $id) : $db->insert_invoice($data);
-    echo json_encode(['success' => true, 'id' => $id]);
+    $id = intval($_POST['id'] ?? 0);
+    if ($id > 0) {
+        $db->update_invoice($data, $id);
+        $saved_id = $id;
+    } else {
+        $saved_id = (int) $db->insert_invoice($data);
+    }
+    echo json_encode(['success' => true, 'id' => $saved_id]);
     exit;
 }
 
