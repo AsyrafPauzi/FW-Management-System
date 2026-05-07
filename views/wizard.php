@@ -47,7 +47,7 @@ $wizard_unlock = $is_admin || $force_edit || ($is_fully_completed && $can_edit_u
 /**
  * Attribute Helper: Handles locking/disabling inputs
  */
-function render_lock_attr($step, $curr, $wizard_unlock, $staff_view_only) {
+function render_lock_attr($step, $curr, $wizard_unlock, $staff_view_only, $is_fully_completed) {
     if ($wizard_unlock) return 'class="fws-input w-full bg-slate-50 border-none p-4 rounded-2xl focus:ring-2 focus:ring-blue-500 transition font-bold text-slate-700 shadow-sm"';
     if ($staff_view_only) return 'disabled readonly class="fws-input w-full bg-slate-100 border-slate-200 p-4 rounded-2xl text-slate-400 cursor-not-allowed font-bold"';
     
@@ -55,7 +55,8 @@ function render_lock_attr($step, $curr, $wizard_unlock, $staff_view_only) {
     if ($step == 1) return 'class="fws-input w-full bg-slate-50 border-none p-4 rounded-2xl focus:ring-2 focus:ring-blue-500 transition font-bold text-slate-700 shadow-sm"';
     
     $effective_curr = $curr;
-    if ($step < $effective_curr) return 'readonly class="fws-input w-full bg-slate-100 border-slate-200 p-4 rounded-2xl text-slate-500 cursor-not-allowed font-bold pointer-events-none"';
+    $can_edit_prior = !$is_fully_completed && current_user_can_edit();
+    if ($step < $effective_curr && !$can_edit_prior) return 'readonly class="fws-input w-full bg-slate-100 border-slate-200 p-4 rounded-2xl text-slate-500 cursor-not-allowed font-bold pointer-events-none"';
     if ($step > $effective_curr) return 'disabled class="fws-input w-full bg-slate-50 border-none p-4 rounded-2xl text-slate-200 cursor-not-allowed font-bold shadow-none"';
     
     return 'class="fws-input w-full bg-slate-50 border-none p-4 rounded-2xl focus:ring-2 focus:ring-blue-500 transition font-bold text-slate-700 shadow-sm"';
@@ -64,9 +65,10 @@ function render_lock_attr($step, $curr, $wizard_unlock, $staff_view_only) {
 /**
  * File Field Helper
  */
-function render_file_field($url, $name, $step, $curr, $wizard_unlock, $staff_view_only) {
+function render_file_field($url, $name, $step, $curr, $wizard_unlock, $staff_view_only, $is_fully_completed) {
     $html = '';
-    if (!$staff_view_only && ($step == $curr || $wizard_unlock || $step == 1)) {
+    $can_revisit_files = !$is_fully_completed && current_user_can_edit() && $step <= $curr;
+    if (!$staff_view_only && ($wizard_unlock || $step == 1 || $step == $curr || $can_revisit_files)) {
         $html .= '<div class="mb-2"><input type="file" name="'.$name.'" class="block w-full text-[10px] text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-[10px] file:font-black file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer transition-all"></div>';
     }
     if ($url) {
@@ -95,6 +97,7 @@ window.isAdmin = <?php echo $is_admin ? 'true' : 'false'; ?>;
 window.wizardFullAccess = <?php echo $wizard_unlock ? 'true' : 'false'; ?>;
 window.isForceEdit = <?php echo ($force_edit) ? 'true' : 'false'; ?>;
 window.isFullyCompleted = <?php echo ($is_fully_completed) ? 'true' : 'false'; ?>;
+window.staffSaveOnPriorSteps = <?php echo (!$is_fully_completed && $can_edit_user && !$wizard_unlock) ? 'true' : 'false'; ?>;
 </script>
 
 <div class="container mx-auto max-w-5xl py-4 md:py-6 animate-fade-in pb-32 px-2 md:px-0">
@@ -176,21 +179,21 @@ window.isFullyCompleted = <?php echo ($is_fully_completed) ? 'true' : 'false'; ?
                             
                             <div class="md:col-span-2">
                                 <label class="lbl">Category *</label>
-                                <select name="category" class="inp" data-required="true" <?php echo render_lock_attr(1, $current_stage, $wizard_unlock, $staff_view_only); ?>>
+                                <select name="category" class="inp" data-required="true" <?php echo render_lock_attr(1, $current_stage, $wizard_unlock, $staff_view_only, $is_fully_completed); ?>>
                                     <option value="Calling Visa" <?php echo selected($worker->category ?? '', 'Calling Visa'); ?>>Calling Visa</option>
                                     <option value="Programme" <?php echo selected($worker->category ?? '', 'Programme'); ?>>Programme</option>
                                     <option value="Tukar Majikan" <?php echo selected($worker->category ?? '', 'Tukar Majikan'); ?>>Tukar Majikan</option>
                                 </select>
                             </div>
 
-                            <div><label class="lbl">Passport No *</label><input type="text" name="passport_number" id="passport_number" value="<?php echo $worker ? e($worker->passport_number) : ''; ?>" <?php echo render_lock_attr(1, $current_stage, $wizard_unlock, $staff_view_only); ?> data-required="true"></div>
-                            <div><label class="lbl">Full Name *</label><input type="text" id="worker_full_name" name="full_name" value="<?php echo $worker ? e($worker->full_name) : ''; ?>" <?php echo render_lock_attr(1, $current_stage, $wizard_unlock, $staff_view_only); ?> data-required="true"></div>
+                            <div><label class="lbl">Passport No *</label><input type="text" name="passport_number" id="passport_number" value="<?php echo $worker ? e($worker->passport_number) : ''; ?>" <?php echo render_lock_attr(1, $current_stage, $wizard_unlock, $staff_view_only, $is_fully_completed); ?> data-required="true"></div>
+                            <div><label class="lbl">Full Name *</label><input type="text" id="worker_full_name" name="full_name" value="<?php echo $worker ? e($worker->full_name) : ''; ?>" <?php echo render_lock_attr(1, $current_stage, $wizard_unlock, $staff_view_only, $is_fully_completed); ?> data-required="true"></div>
                             <div>
     <label class="lbl">Phone Number (Optional)</label>
-    <input type="text" name="phone_number" value="<?php echo $worker ? e($worker->phone_number) : ''; ?>" <?php echo render_lock_attr(1, $current_stage, $wizard_unlock, $staff_view_only); ?> placeholder="e.g. 60123456789">
+    <input type="text" name="phone_number" value="<?php echo $worker ? e($worker->phone_number) : ''; ?>" <?php echo render_lock_attr(1, $current_stage, $wizard_unlock, $staff_view_only, $is_fully_completed); ?> placeholder="e.g. 60123456789">
 </div>
-                            <div><label class="lbl">KWSP Member No</label><input type="text" name="kwsp_no" class="inp" value="<?php echo $worker ? e($worker->kwsp_no) : ''; ?>" <?php echo render_lock_attr(1, $current_stage, $wizard_unlock, $staff_view_only); ?>></div>
-                            <div><label class="lbl">Nationality</label><select name="nationality" class="inp" <?php echo render_lock_attr(1, $current_stage, $wizard_unlock, $staff_view_only); ?>>
+                            <div><label class="lbl">KWSP Member No</label><input type="text" name="kwsp_no" class="inp" value="<?php echo $worker ? e($worker->kwsp_no) : ''; ?>" <?php echo render_lock_attr(1, $current_stage, $wizard_unlock, $staff_view_only, $is_fully_completed); ?>></div>
+                            <div><label class="lbl">Nationality</label><select name="nationality" class="inp" <?php echo render_lock_attr(1, $current_stage, $wizard_unlock, $staff_view_only, $is_fully_completed); ?>>
                                 <option value="Bangladesh" <?php echo selected($worker->nationality ?? '', 'Bangladesh'); ?>>Bangladesh</option>
                                 <option value="Indonesia" <?php echo selected($worker->nationality ?? '', 'Indonesia'); ?>>Indonesia</option>
                                 <option value="Nepal" <?php echo selected($worker->nationality ?? '', 'Nepal'); ?>>Nepal</option>
@@ -198,14 +201,14 @@ window.isFullyCompleted = <?php echo ($is_fully_completed) ? 'true' : 'false'; ?
                             </select></div>
                             
                             <!-- GENDER FIELD (Now Included) -->
-                            <div><label class="lbl">Gender</label><select name="gender" class="inp" <?php echo render_lock_attr(1, $current_stage, $wizard_unlock, $staff_view_only); ?>>
+                            <div><label class="lbl">Gender</label><select name="gender" class="inp" <?php echo render_lock_attr(1, $current_stage, $wizard_unlock, $staff_view_only, $is_fully_completed); ?>>
                                 <option value="Male" <?php echo selected($worker->gender ?? '', 'Male'); ?>>Male</option>
                                 <option value="Female" <?php echo selected($worker->gender ?? '', 'Female'); ?>>Female</option>
                             </select></div>
 
-                            <div><label class="lbl">Birth Date</label><input type="date" name="dob" class="inp" value="<?php echo $worker ? e($worker->dob) : ''; ?>" <?php echo render_lock_attr(1, $current_stage, $wizard_unlock, $staff_view_only); ?>></div>
-                            <div><label class="lbl">Passport Expiry</label><input type="date" name="passport_expiry" class="inp" value="<?php echo $worker ? e($worker->passport_expiry) : ''; ?>" <?php echo render_lock_attr(1, $current_stage, $wizard_unlock, $staff_view_only); ?>></div>
-                            <div class="md:col-span-2"><label class="lbl">Visa Expiry</label><input type="date" name="visa_expiry" class="inp" value="<?php echo $worker ? e($worker->visa_expiry) : ''; ?>" <?php echo render_lock_attr(1, $current_stage, $wizard_unlock, $staff_view_only); ?>></div>
+                            <div><label class="lbl">Birth Date</label><input type="date" name="dob" class="inp" value="<?php echo $worker ? e($worker->dob) : ''; ?>" <?php echo render_lock_attr(1, $current_stage, $wizard_unlock, $staff_view_only, $is_fully_completed); ?>></div>
+                            <div><label class="lbl">Passport Expiry</label><input type="date" name="passport_expiry" class="inp" value="<?php echo $worker ? e($worker->passport_expiry) : ''; ?>" <?php echo render_lock_attr(1, $current_stage, $wizard_unlock, $staff_view_only, $is_fully_completed); ?>></div>
+                            <div class="md:col-span-2"><label class="lbl">Visa Expiry</label><input type="date" name="visa_expiry" class="inp" value="<?php echo $worker ? e($worker->visa_expiry) : ''; ?>" <?php echo render_lock_attr(1, $current_stage, $wizard_unlock, $staff_view_only, $is_fully_completed); ?>></div>
 
                             <!-- FINANCIAL OVERVIEW -->
                             <div class="md:col-span-2 mt-10 flex justify-between items-center border-b pb-4 mb-4">
@@ -268,7 +271,7 @@ window.isFullyCompleted = <?php echo ($is_fully_completed) ? 'true' : 'false'; ?
                         <h3 class="text-lg md:text-xl font-black text-slate-800 mb-6 md:mb-8 uppercase italic border-b pb-4 tracking-widest">03. FOMEMA Details</h3>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-8">
                             <div><label class="lbl">Status</label>
-                            <select name="fomema_status" class="inp" <?php echo render_lock_attr(3, $current_stage, $wizard_unlock, $staff_view_only); ?>>
+                            <select name="fomema_status" class="inp" <?php echo render_lock_attr(3, $current_stage, $wizard_unlock, $staff_view_only, $is_fully_completed); ?>>
                                 <option value="">Select Status</option>
                                 <option value="Pending" <?php echo selected($worker->fomema_status ?? '', 'Pending'); ?>>Pending</option>
                                 <option value="In Progress" <?php echo selected($worker->fomema_status ?? '', 'In Progress'); ?>>In Progress</option>
@@ -276,14 +279,14 @@ window.isFullyCompleted = <?php echo ($is_fully_completed) ? 'true' : 'false'; ?
                                 <option value="Unfit" <?php echo selected($worker->fomema_status ?? '', 'Unfit'); ?>>Unfit</option>
                             </select></div>
                             <div><label class="lbl">Expired Date</label>
-                                <input type="date" name="fomema_expiry" class="inp" value="<?php echo $worker ? e($worker->fomema_expiry) : ''; ?>" <?php echo render_lock_attr(3, $current_stage, $wizard_unlock, $staff_view_only); ?>>
+                                <input type="date" name="fomema_expiry" class="inp" value="<?php echo $worker ? e($worker->fomema_expiry) : ''; ?>" <?php echo render_lock_attr(3, $current_stage, $wizard_unlock, $staff_view_only, $is_fully_completed); ?>>
                             </div>
                             <div class="md:col-span-2"><label class="lbl">Clinic Code</label>
-                                <input type="text" name="fomema_code" class="inp" placeholder="Optional" value="<?php echo $worker ? e($worker->fomema_code) : ''; ?>" <?php echo render_lock_attr(3, $current_stage, $wizard_unlock, $staff_view_only); ?>>
+                                <input type="text" name="fomema_code" class="inp" placeholder="Optional" value="<?php echo $worker ? e($worker->fomema_code) : ''; ?>" <?php echo render_lock_attr(3, $current_stage, $wizard_unlock, $staff_view_only, $is_fully_completed); ?>>
                             </div>
                             <div class="md:col-span-2 bg-slate-50 p-6 md:p-8 rounded-[2rem] border-2 border-dashed border-slate-200">
                                 <label class="lbl mb-2">FOMEMA Document</label>
-                                <?php echo render_file_field($worker->fomema_proof ?? '', 'fomema_proof', 3, (int)$current_stage, $wizard_unlock, $staff_view_only); ?>
+                                <?php echo render_file_field($worker->fomema_proof ?? '', 'fomema_proof', 3, (int)$current_stage, $wizard_unlock, $staff_view_only, $is_fully_completed); ?>
                             </div>
                         </div>
                     </div>
@@ -294,9 +297,13 @@ window.isFullyCompleted = <?php echo ($is_fully_completed) ? 'true' : 'false'; ?
                     <div class="bg-white p-6 md:p-10 rounded-[2rem] md:rounded-[2.5rem] shadow-sm border border-slate-100">
                         <h3 class="text-lg md:text-xl font-black text-slate-800 mb-6 md:mb-8 uppercase italic border-b pb-4">04. Insurance Matrix</h3>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-8">
-                            <div><label class="lbl">Policy No *</label><input type="text" name="insurance_policy" class="inp" value="<?php echo $worker ? e($worker->insurance_policy) : ''; ?>" <?php echo render_lock_attr(4, $current_stage, $wizard_unlock, $staff_view_only); ?> data-required="true"></div>
-                            <div><label class="lbl">Provider *</label><input type="text" name="insurance_provider" class="inp" value="<?php echo $worker ? e($worker->insurance_provider) : ''; ?>" <?php echo render_lock_attr(4, $current_stage, $wizard_unlock, $staff_view_only); ?> data-required="true"></div>
-                            <div class="md:col-span-2"><label class="lbl">Expiry Date *</label><input type="date" name="insurance_expiry" class="inp" value="<?php echo $worker ? e($worker->insurance_expiry) : ''; ?>" <?php echo render_lock_attr(4, $current_stage, $wizard_unlock, $staff_view_only); ?> data-required="true"></div>
+                            <div><label class="lbl">Policy No *</label><input type="text" name="insurance_policy" class="inp" value="<?php echo $worker ? e($worker->insurance_policy) : ''; ?>" <?php echo render_lock_attr(4, $current_stage, $wizard_unlock, $staff_view_only, $is_fully_completed); ?> data-required="true"></div>
+                            <div><label class="lbl">Provider *</label><input type="text" name="insurance_provider" class="inp" value="<?php echo $worker ? e($worker->insurance_provider) : ''; ?>" <?php echo render_lock_attr(4, $current_stage, $wizard_unlock, $staff_view_only, $is_fully_completed); ?> data-required="true"></div>
+                            <div class="md:col-span-2"><label class="lbl">Expiry Date *</label><input type="date" name="insurance_expiry" class="inp" value="<?php echo $worker ? e($worker->insurance_expiry) : ''; ?>" <?php echo render_lock_attr(4, $current_stage, $wizard_unlock, $staff_view_only, $is_fully_completed); ?> data-required="true"></div>
+                            <div class="md:col-span-2 bg-slate-50 p-6 md:p-8 rounded-[2rem] border-2 border-dashed border-slate-200">
+                                <label class="lbl mb-2">Insurance Document (JPG, PNG or PDF)</label>
+                                <?php echo render_file_field($worker->insurance_proof ?? '', 'insurance_proof', 4, (int)$current_stage, $wizard_unlock, $staff_view_only, $is_fully_completed); ?>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -308,7 +315,7 @@ window.isFullyCompleted = <?php echo ($is_fully_completed) ? 'true' : 'false'; ?
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-8">
                             <div class="md:col-span-2">
                                 <label class="lbl">Status</label>
-                                <select name="levy_status" class="inp" <?php echo render_lock_attr(5, $current_stage, $wizard_unlock, $staff_view_only); ?>>
+                                <select name="levy_status" class="inp" <?php echo render_lock_attr(5, $current_stage, $wizard_unlock, $staff_view_only, $is_fully_completed); ?>>
                                     <option value="">Select Status</option>
                                     <option value="Pending Submission" <?php echo selected($worker->levy_status ?? '', 'Pending Submission'); ?>>Pending Submission</option>
                                     <option value="Pending OTP" <?php echo selected($worker->levy_status ?? '', 'Pending OTP'); ?>>Pending OTP</option>
@@ -329,22 +336,22 @@ window.isFullyCompleted = <?php echo ($is_fully_completed) ? 'true' : 'false'; ?
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-8">
                             <div class="md:col-span-2">
                                 <label class="lbl">Status</label>
-                                <select name="permit_status" class="inp" <?php echo render_lock_attr(7, $current_stage, $wizard_unlock, $staff_view_only); ?>>
+                                <select name="permit_status" class="inp" <?php echo render_lock_attr(7, $current_stage, $wizard_unlock, $staff_view_only, $is_fully_completed); ?>>
                                     <option value="">Select Status</option>
                                     <option value="Pending Collection" <?php echo selected($worker->permit_status ?? '', 'Pending Collection'); ?>>Pending Collection</option>
                                     <option value="Collected" <?php echo selected($worker->permit_status ?? '', 'Collected'); ?>>Collected</option>
                                 </select>
                             </div>
-                            <div class="md:col-span-2"><label class="lbl">Permit Sticker No *</label><input type="text" name="permit_number" class="inp" value="<?php echo $worker ? e($worker->permit_number) : ''; ?>" <?php echo render_lock_attr(7, $current_stage, $wizard_unlock, $staff_view_only); ?> data-required="true"></div>
-                            <div><label class="lbl">Issue Date *</label><input type="date" name="permit_issue" class="inp" value="<?php echo $worker ? e($worker->permit_issue) : ''; ?>" <?php echo render_lock_attr(7, $current_stage, $wizard_unlock, $staff_view_only); ?> data-required="true"></div>
-                            <div><label class="lbl">Expiry Date *</label><input type="date" name="permit_expiry" class="inp" value="<?php echo $worker ? e($worker->permit_expiry) : ''; ?>" <?php echo render_lock_attr(7, $current_stage, $wizard_unlock, $staff_view_only); ?> data-required="true"></div>
+                            <div class="md:col-span-2"><label class="lbl">Permit Sticker No *</label><input type="text" name="permit_number" class="inp" value="<?php echo $worker ? e($worker->permit_number) : ''; ?>" <?php echo render_lock_attr(7, $current_stage, $wizard_unlock, $staff_view_only, $is_fully_completed); ?> data-required="true"></div>
+                            <div><label class="lbl">Issue Date *</label><input type="date" name="permit_issue" class="inp" value="<?php echo $worker ? e($worker->permit_issue) : ''; ?>" <?php echo render_lock_attr(7, $current_stage, $wizard_unlock, $staff_view_only, $is_fully_completed); ?> data-required="true"></div>
+                            <div><label class="lbl">Expiry Date *</label><input type="date" name="permit_expiry" class="inp" value="<?php echo $worker ? e($worker->permit_expiry) : ''; ?>" <?php echo render_lock_attr(7, $current_stage, $wizard_unlock, $staff_view_only, $is_fully_completed); ?> data-required="true"></div>
                             <div class="md:col-span-2 bg-blue-50 p-6 rounded-3xl border-2 border-blue-100 mt-4">
     <label class="lbl mb-2 text-blue-600">Passport Copy (Full Page) *</label>
-    <?php echo render_file_field($worker->passport_copy_proof ?? '', 'passport_copy_proof', 7, $current_stage, $wizard_unlock, $staff_view_only); ?>
+    <?php echo render_file_field($worker->passport_copy_proof ?? '', 'passport_copy_proof', 7, $current_stage, $wizard_unlock, $staff_view_only, $is_fully_completed); ?>
 </div>
                             <div class="md:col-span-2 bg-red-50 p-6 rounded-3xl border-2 border-red-100">
                                 <label class="lbl mb-2 text-red-600">EPASS Worker Document (Mandatory) *</label>
-                                <?php echo render_file_field($worker->epass_worker_proof ?? '', 'epass_worker_proof', 7, $current_stage, $wizard_unlock, $staff_view_only); ?>
+                                <?php echo render_file_field($worker->epass_worker_proof ?? '', 'epass_worker_proof', 7, $current_stage, $wizard_unlock, $staff_view_only, $is_fully_completed); ?>
                             </div>
                         </div>
                     </div>
@@ -355,12 +362,12 @@ window.isFullyCompleted = <?php echo ($is_fully_completed) ? 'true' : 'false'; ?
                     <div class="bg-white p-10 rounded-[2rem] md:rounded-[2.5rem] shadow-sm border border-slate-100">
                         <h3 class="text-xl font-black text-slate-800 mb-8 uppercase italic border-b pb-4 tracking-widest">08. CIDB Matrix</h3>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-8">
-                            <div><label class="lbl">Status *</label><select name="cidb_status" class="inp" <?php echo render_lock_attr(8, $current_stage, $wizard_unlock, $staff_view_only); ?>><option value="Pending" <?php echo selected($worker->cidb_status??'','Pending');?>>Pending</option><option value="Done" <?php echo selected($worker->cidb_status??'','Done');?>>Done</option></select></div>
-                            <div><label class="lbl">Category *</label><select name="cidb_category" class="inp" <?php echo render_lock_attr(8, $current_stage, $wizard_unlock, $staff_view_only); ?>><option value="General Worker" <?php echo selected($worker->cidb_category??'','General Worker');?>>General Worker</option><option value="Skill Worker" <?php echo selected($worker->cidb_category??'','Skill Worker');?>>Skill Worker</option></select></div>
-                            <div class="md:col-span-2"><label class="lbl">Expiry Date *</label><input type="date" name="cidb_expiry" class="inp" value="<?php echo $worker ? e($worker->cidb_expiry) : ''; ?>" <?php echo render_lock_attr(8, $current_stage, $wizard_unlock, $staff_view_only); ?> data-required="true"></div>
+                            <div><label class="lbl">Status *</label><select name="cidb_status" class="inp" <?php echo render_lock_attr(8, $current_stage, $wizard_unlock, $staff_view_only, $is_fully_completed); ?>><option value="Pending" <?php echo selected($worker->cidb_status??'','Pending');?>>Pending</option><option value="Done" <?php echo selected($worker->cidb_status??'','Done');?>>Done</option></select></div>
+                            <div><label class="lbl">Category *</label><select name="cidb_category" class="inp" <?php echo render_lock_attr(8, $current_stage, $wizard_unlock, $staff_view_only, $is_fully_completed); ?>><option value="General Worker" <?php echo selected($worker->cidb_category??'','General Worker');?>>General Worker</option><option value="Skill Worker" <?php echo selected($worker->cidb_category??'','Skill Worker');?>>Skill Worker</option></select></div>
+                            <div class="md:col-span-2"><label class="lbl">Expiry Date *</label><input type="date" name="cidb_expiry" class="inp" value="<?php echo $worker ? e($worker->cidb_expiry) : ''; ?>" <?php echo render_lock_attr(8, $current_stage, $wizard_unlock, $staff_view_only, $is_fully_completed); ?> data-required="true"></div>
                             <div class="md:col-span-2 bg-slate-50 p-6 md:p-8 rounded-[2rem] border-2 border-dashed border-slate-200">
                                 <label class="lbl mb-2">Upload Latest CIDB Proof</label>
-                                <?php echo render_file_field($worker->cidb_proof ?? '', 'cidb_proof', 8, (int)$current_stage, $wizard_unlock, $staff_view_only); ?>
+                                <?php echo render_file_field($worker->cidb_proof ?? '', 'cidb_proof', 8, (int)$current_stage, $wizard_unlock, $staff_view_only, $is_fully_completed); ?>
                             </div>
                         </div>
                     </div>

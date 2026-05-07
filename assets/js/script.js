@@ -440,8 +440,9 @@ window.switchTab = function(step) {
 
     if (wizardFullAccess || isForceEditMode) { $('#fws-action-group').show(); $('#fws-nav-group').hide(); }
     else {
+        var staffSavePrior = (window.staffSaveOnPriorSteps === true || window.staffSaveOnPriorSteps === 'true');
         var isPastStep = (step < window.maxWorkerStage || isFullDone);
-        if (isPastStep) { $('#fws-action-group').hide(); $('#fws-nav-group').show(); }
+        if (isPastStep && !staffSavePrior) { $('#fws-action-group').hide(); $('#fws-nav-group').show(); }
         else { $('#fws-action-group').show(); $('#fws-nav-group').hide(); }
     }
     window.scrollTo({ top: 0, behavior: 'smooth' });

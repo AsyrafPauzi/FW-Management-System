@@ -73,6 +73,7 @@ try {
         insurance_policy VARCHAR(50), 
         insurance_provider VARCHAR(50), 
         insurance_expiry DATE, 
+        insurance_proof VARCHAR(255), 
         payment2_receipt VARCHAR(50), 
         payment2_date DATE, 
         payment2_time TIME, 

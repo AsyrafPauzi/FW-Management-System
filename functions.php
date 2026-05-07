@@ -152,6 +152,19 @@ class DB {
 
     public function __construct($pdo) {
         $this->pdo = $pdo;
+        $this->ensure_workers_insurance_proof_column();
+    }
+
+    /** Adds insurance_proof when upgrading older databases (safe no-op if present). */
+    private function ensure_workers_insurance_proof_column() {
+        try {
+            $q = $this->pdo->query("SHOW COLUMNS FROM workers LIKE 'insurance_proof'");
+            if ($q && $q->rowCount() === 0) {
+                $this->pdo->exec("ALTER TABLE workers ADD COLUMN insurance_proof VARCHAR(255) NULL AFTER insurance_expiry");
+            }
+        } catch (PDOException $e) {
+            error_log('DB schema note (insurance_proof): ' . $e->getMessage());
+        }
     }
 
     // --------------------------------------------------
@@ -374,7 +387,7 @@ class DB {
             $reset_data = [
                 'current_stage' => 1, 'fomema_status' => 'Pending', 'fomema_code' => null,
                 'fomema_expiry' => null, 'fomema_proof' => null, 'insurance_policy' => null,
-                'insurance_provider' => null, 'insurance_expiry' => null, 'levy_status' => null,
+                'insurance_provider' => null, 'insurance_expiry' => null, 'insurance_proof' => null, 'levy_status' => null,
                 'levy_reference' => null, 'levy_expiry' => null, 'permit_status' => null,
                 'permit_number' => null, 'permit_issue' => null, 'permit_expiry' => null,
                 'epass_worker_proof' => null, 'cidb_status' => 'Pending', 'cidb_category' => null,
@@ -431,10 +444,10 @@ class DB {
         $worker = $this->get_worker($id);
         if (!$worker) return false;
 
-        $stmt = $this->pdo->prepare("SELECT fomema_proof, cidb_proof FROM workers WHERE id = ?");
+        $stmt = $this->pdo->prepare("SELECT fomema_proof, insurance_proof, cidb_proof, epass_worker_proof, passport_copy_proof FROM workers WHERE id = ?");
         $stmt->execute([$id]); $w = $stmt->fetch();
         if ($w) {
-            foreach ([$w->fomema_proof, $w->cidb_proof] as $f) {
+            foreach ([$w->fomema_proof, $w->insurance_proof, $w->cidb_proof, $w->epass_worker_proof, $w->passport_copy_proof] as $f) {
                 if ($f) { $path = 'uploads/' . basename($f); if (file_exists($path)) @unlink($path); }
             }
         }

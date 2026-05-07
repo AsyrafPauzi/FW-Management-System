@@ -139,7 +139,7 @@ if ($action === 'save_worker') {
         $uploads_dir = 'uploads/';
         if (!is_dir($uploads_dir)) mkdir($uploads_dir, 0755, true);
 
-        foreach (['fomema_proof', 'cidb_proof', 'epass_worker_proof', 'passport_copy_proof'] as $file_key) {
+        foreach (['fomema_proof', 'insurance_proof', 'cidb_proof', 'epass_worker_proof', 'passport_copy_proof'] as $file_key) {
     if (isset($_FILES[$file_key]) && !empty($_FILES[$file_key]['name']) && $_FILES[$file_key]['error'] === UPLOAD_ERR_OK) {
                 
                 $file_tmp  = $_FILES[$file_key]['tmp_name'];

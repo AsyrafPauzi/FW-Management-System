@@ -162,6 +162,9 @@ $all_archives = $stmt->fetchAll();
         <?php if(!empty($d->fomema_proof)): ?>
             <a href="<?php echo e($d->fomema_proof); ?>" target="_blank" class="px-2 py-1 bg-slate-100 text-[8px] rounded font-bold uppercase">Fomema</a>
         <?php endif; ?>
+        <?php if(!empty($d->insurance_proof)): ?>
+            <a href="<?php echo e($d->insurance_proof); ?>" target="_blank" class="px-2 py-1 bg-slate-100 text-[8px] rounded font-bold uppercase">Insurance</a>
+        <?php endif; ?>
         <?php if(!empty($d->cidb_proof)): ?>
             <a href="<?php echo e($d->cidb_proof); ?>" target="_blank" class="px-2 py-1 bg-slate-100 text-[8px] rounded font-bold uppercase">CIDB</a>
         <?php endif; ?>
