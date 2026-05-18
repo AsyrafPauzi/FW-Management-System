@@ -369,7 +369,7 @@ window.executeExport = function(type) {
 window.renewWorker = function(id, name) {
     Swal.fire({
         title: 'Initiate Renewal cycle?',
-        text: "Archive current data for " + name + " and reset for a new permit cycle.",
+        text: "Archive current data for " + name + " and reset for a new permit cycle. The old cycle will stay under Renewal Archive History on the wizard (use Remove there only if this was a mistake).",
         icon: 'warning',
         showCancelButton: true,
         confirmButtonText: 'Yes, Start Renewal',
@@ -417,6 +417,50 @@ window.renewWorker = function(id, name) {
                 }
             });
         }
+    });
+};
+
+/**
+ * Remove a mistaken renewal archive entry (wizard footer section).
+ */
+window.deleteWorkerArchive = function(archiveId, workerId) {
+    Swal.fire({
+        title: 'Remove this archive?',
+        text: 'Only use if Renew was clicked by mistake. This cannot be undone.',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Yes, remove',
+        cancelButtonText: 'Cancel',
+        customClass: {
+            popup: 'rounded-[2rem] p-8',
+            confirmButton: 'bg-red-600 text-white px-8 py-3 rounded-xl font-black uppercase text-xs shadow-xl',
+            cancelButton: 'bg-slate-100 text-slate-400 px-8 py-3 rounded-xl font-black uppercase text-xs ml-2'
+        },
+        buttonsStyling: false
+    }).then(function(result) {
+        if (!result.isConfirmed) return;
+        $.ajax({
+            url: API_URL,
+            type: 'POST',
+            dataType: 'json',
+            data: {
+                action: 'delete_worker_archive',
+                archive_id: archiveId,
+                worker_id: workerId,
+                csrf_token: CSRF_TOKEN
+            },
+            success: function(res) {
+                if (res.success) {
+                    Swal.fire({ icon: 'success', title: 'Archive removed', timer: 1200, showConfirmButton: false })
+                        .then(function() { window.location.reload(); });
+                } else {
+                    Swal.fire('Error', res.data || 'Could not remove archive.', 'error');
+                }
+            },
+            error: function() {
+                Swal.fire('Network Error', 'Could not reach server.', 'error');
+            }
+        });
     });
 };
 

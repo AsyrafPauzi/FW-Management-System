@@ -420,6 +420,16 @@ class DB {
         return $stmt->fetchAll();
     }
 
+    public function delete_worker_archive($archive_id, $worker_id) {
+        $stmt = $this->pdo->prepare("DELETE FROM worker_archives WHERE id = ? AND worker_id = ?");
+        $stmt->execute([(int)$archive_id, (int)$worker_id]);
+        if ($stmt->rowCount() > 0) {
+            $this->cache_flush();
+            return true;
+        }
+        return false;
+    }
+
     public function save_worker($data, $id = 0) {
         foreach ($data as $key => $val) {
             if ($val === '') $data[$key] = null;

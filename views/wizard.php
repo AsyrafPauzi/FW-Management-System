@@ -399,7 +399,8 @@ window.staffSaveOnPriorSteps = <?php echo (!$is_fully_completed && $can_edit_use
     <!-- ARCHIVE SECTION (Synced with V5 Data) -->
     <?php if(!empty($archives)): ?>
     <div class="max-w-5xl mx-auto mt-12 bg-white rounded-[2rem] shadow-2xl border border-slate-200 p-6 md:p-10 animate-fade-in">
-        <h3 class="text-xl md:text-2xl font-black uppercase italic tracking-tighter mb-8 text-slate-800 tracking-widest">📜 Renewal Archive History</h3>
+        <h3 class="text-xl md:text-2xl font-black uppercase italic tracking-tighter mb-2 text-slate-800 tracking-widest">📜 Renewal Archive History</h3>
+        <p class="text-[11px] text-slate-500 font-bold mb-8 leading-relaxed">Records from each <strong>Renew</strong> action on the worker directory. Filling the wizard again does not remove these — only use <strong>Remove</strong> if renewal was started by mistake.</p>
         <div class="space-y-6">
             <?php foreach($archives as $a): 
                 $archive_snapshot = json_decode($a->archive_data);
@@ -410,6 +411,9 @@ window.staffSaveOnPriorSteps = <?php echo (!$is_fully_completed && $can_edit_use
                 <div class="flex justify-between items-center mb-4">
                     <span class="text-[10px] font-black uppercase text-blue-500 tracking-widest">Cycle Archived: <?php echo format_date_my($a->archive_date); ?></span>
                     <span class="bg-slate-900 text-white text-[8px] font-bold px-3 py-1 rounded-full uppercase">Category: <?php echo e($d->category ?? 'N/A'); ?></span>
+                    <?php if ($can_edit_user): ?>
+                    <button type="button" onclick="window.deleteWorkerArchive(<?php echo (int)$a->id; ?>, <?php echo (int)$worker_id; ?>)" class="text-[9px] font-black uppercase text-red-600 hover:text-red-800 border border-red-200 hover:border-red-400 px-3 py-1 rounded-lg transition">Remove</button>
+                    <?php endif; ?>
                 </div>
                 
                 <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">

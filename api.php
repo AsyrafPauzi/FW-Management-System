@@ -336,6 +336,24 @@ if ($action === 'archive_worker') {
     exit;
 }
 
+if ($action === 'delete_worker_archive') {
+    require_permission('edit');
+    $archive_id = intval($_POST['archive_id'] ?? 0);
+    $worker_id = intval($_POST['worker_id'] ?? 0);
+    if ($archive_id <= 0 || $worker_id <= 0) {
+        echo json_encode(['success' => false, 'data' => 'Invalid archive or worker.']);
+        exit;
+    }
+    $ok = $db->delete_worker_archive($archive_id, $worker_id);
+    if ($ok) {
+        $db->log('DELETE_ARCHIVE', "Removed renewal archive #$archive_id for worker ID $worker_id");
+        echo json_encode(['success' => true]);
+    } else {
+        echo json_encode(['success' => false, 'data' => 'Archive record not found.']);
+    }
+    exit;
+}
+
 if ($action === 'download_backup') {
     require_permission('admin');
 
