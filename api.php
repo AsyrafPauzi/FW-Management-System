@@ -385,30 +385,31 @@ if ($action === 'delete_worker_archive') {
 if ($action === 'download_backup') {
     require_permission('admin');
 
-    $tables = ['settings', 'users', 'workers', 'invoices', 'logs', 'worker_archives', 'additional_payments'];
-    $output = "-- FWMS System Backup\n-- Date: " . date('Y-m-d H:i:s') . "\n\n";
-
-    foreach ($tables as $table) {
-        $stmt = $db->pdo->query("SELECT * FROM $table");
-        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-        $output .= "DROP TABLE IF EXISTS `$table`;\n";
-        $create = $db->pdo->query("SHOW CREATE TABLE $table")->fetch(PDO::FETCH_ASSOC);
-        $output .= $create['Create Table'] . ";\n\n";
-
-        foreach ($rows as $row) {
-            $values = array_map(function($v) use ($db) {
-                if (is_null($v)) return 'NULL';
-                return $db->pdo->quote($v);
-            }, $row);
-            $output .= "INSERT INTO `$table` VALUES (" . implode(',', $values) . ");\n";
-        }
-        $output .= "\n\n";
-    }
+    $output = fwms_build_sql_backup($db->pdo);
 
     header('Content-Type: application/octet-stream');
     header('Content-Disposition: attachment; filename="FWMS_Backup_'.date('Y-m-d').'.sql"');
     echo $output;
+    exit;
+}
+
+if ($action === 'run_backup') {
+    require_permission('admin');
+    try {
+        $keep = (int) ($_POST['keep_days'] ?? 14);
+        $meta = fwms_run_scheduled_backup($db->pdo, __DIR__, $keep);
+        $db->log('BACKUP', 'Scheduled backup created: ' . $meta['sql_file']);
+        echo json_encode(['success' => true, 'data' => $meta]);
+    } catch (Exception $e) {
+        echo json_encode(['success' => false, 'data' => 'Backup failed.']);
+        error_log('run_backup: ' . $e->getMessage());
+    }
+    exit;
+}
+
+if ($action === 'get_health') {
+    require_permission('admin');
+    echo json_encode(['success' => true, 'data' => fwms_health_checks($db->pdo, __DIR__)]);
     exit;
 }
 

@@ -1,0 +1,2 @@
+# Deny web access to storage (error logs, etc.)
+Require all denied

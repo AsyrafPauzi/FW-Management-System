@@ -78,12 +78,27 @@ $current_logo = $db->get_setting('company_logo', '');
         <!-- Add this below the Save Branding Button in settings.php -->
 <div class="mt-10 pt-10 border-t border-slate-100">
     <h3 class="text-sm font-black text-slate-800 uppercase italic mb-4">System Maintenance</h3>
-    <div class="bg-slate-50 p-6 rounded-3xl border border-slate-200 flex justify-between items-center">
-        <div>
-            <p class="text-xs font-bold text-slate-700">Database Backup</p>
-            <p class="text-[10px] text-slate-400 uppercase font-bold">Download a full SQL copy of all data and process history.</p>
+    <div class="bg-slate-50 p-6 rounded-3xl border border-slate-200 space-y-4">
+        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div>
+                <p class="text-xs font-bold text-slate-700">Database Backup</p>
+                <p class="text-[10px] text-slate-400 uppercase font-bold">Download a full SQL copy of all data and process history.</p>
+            </div>
+            <button type="button" onclick="downloadSystemBackup()" class="bg-white border-2 border-slate-900 text-slate-900 px-6 py-2 rounded-xl font-black uppercase text-[10px] hover:bg-slate-900 hover:text-white transition">Download .SQL</button>
         </div>
-        <button onclick="downloadSystemBackup()" class="bg-white border-2 border-slate-900 text-slate-900 px-6 py-2 rounded-xl font-black uppercase text-[10px] hover:bg-slate-900 hover:text-white transition">Download .SQL</button>
+        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pt-4 border-t border-slate-200">
+            <div>
+                <p class="text-xs font-bold text-slate-700">Save Backup on Server</p>
+                <p class="text-[10px] text-slate-400 uppercase font-bold">Writes SQL + uploads zip to <code class="normal-case">/backups</code> (14-day retention). Cron: <code class="normal-case">php cli/backup.php</code></p>
+            </div>
+            <button type="button" onclick="runServerBackup()" class="bg-slate-900 text-white px-6 py-2 rounded-xl font-black uppercase text-[10px] hover:bg-blue-600 transition">Run Backup</button>
+        </div>
+        <div class="pt-4 border-t border-slate-200">
+            <p class="text-xs font-bold text-slate-700 mb-1">Health Check</p>
+            <p class="text-[10px] text-slate-400 uppercase font-bold mb-3">Public monitor URL: <code class="normal-case">/health.php</code></p>
+            <button type="button" onclick="checkSystemHealth()" class="bg-white border-2 border-slate-300 text-slate-700 px-6 py-2 rounded-xl font-black uppercase text-[10px] hover:border-blue-500 hover:text-blue-600 transition">Check Now</button>
+            <pre id="health-result" class="mt-3 hidden text-[10px] bg-white border border-slate-200 rounded-2xl p-4 overflow-auto text-slate-600"></pre>
+        </div>
     </div>
 </div>
     </div>
@@ -107,6 +122,53 @@ function downloadSystemBackup() {
     form.appendChild(csrf);
     document.body.appendChild(form);
     form.submit();
+}
+
+function runServerBackup() {
+    Swal.fire({
+        title: 'Running Backup...',
+        allowOutsideClick: false,
+        didOpen: () => { Swal.showLoading(); },
+        customClass: { popup: 'rounded-[2.5rem]' }
+    });
+    $.ajax({
+        url: API_URL,
+        type: 'POST',
+        dataType: 'json',
+        data: { action: 'run_backup', csrf_token: CSRF_TOKEN, keep_days: 14 },
+        success: function(res) {
+            if (res.success) {
+                Swal.fire({
+                    icon: 'success',
+                    title: 'Backup Saved',
+                    text: res.data.sql_file + (res.data.uploads_zip ? ' + ' + res.data.uploads_zip : ''),
+                    customClass: { popup: 'rounded-[2.5rem]' }
+                });
+            } else {
+                Swal.fire({ icon: 'error', title: 'Backup Failed', text: res.data || 'Unknown error', customClass: { popup: 'rounded-[2.5rem]' } });
+            }
+        },
+        error: function() {
+            Swal.fire({ icon: 'error', title: 'Backup Failed', text: 'Network or server error.', customClass: { popup: 'rounded-[2.5rem]' } });
+        }
+    });
+}
+
+function checkSystemHealth() {
+    $.ajax({
+        url: API_URL,
+        type: 'POST',
+        dataType: 'json',
+        data: { action: 'get_health', csrf_token: CSRF_TOKEN },
+        success: function(res) {
+            var el = document.getElementById('health-result');
+            el.classList.remove('hidden');
+            el.textContent = JSON.stringify(res.data || res, null, 2);
+        },
+        error: function() {
+            Swal.fire({ icon: 'error', title: 'Health check failed', customClass: { popup: 'rounded-[2.5rem]' } });
+        }
+    });
 }
 
 

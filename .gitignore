@@ -1,5 +1,13 @@
 .env
 uploads/*
 !uploads/.htaccess
+backups/*
+!backups/.htaccess
+storage/*
+!storage/.htaccess
+!storage/.gitkeep
+vendor/
 *.sql
 *.log
+.phpunit.cache/
+storage/.phpunit.cache/

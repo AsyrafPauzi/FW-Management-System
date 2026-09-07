@@ -281,8 +281,248 @@ function validate_request(array $rules_map, array $data) {
     return ['valid' => true];
 }
 
+// ==================================================
+// 2b. LOGIN LOCKOUT (IP-backed, survives cookie clear)
+// ==================================================
 
+if (!defined('FWMS_MAX_LOGIN_ATTEMPTS')) define('FWMS_MAX_LOGIN_ATTEMPTS', 5);
+if (!defined('FWMS_LOCKOUT_SECONDS')) define('FWMS_LOCKOUT_SECONDS', 900);
 
+function fwms_client_ip() {
+    return $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+}
+
+function fwms_login_ip_hash($ip = null) {
+    $ip = $ip ?? fwms_client_ip();
+    return hash('sha256', $ip . '|fwms-login');
+}
+
+function ensure_login_attempts_table(PDO $pdo) {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS login_attempts (
+        ip_hash CHAR(64) PRIMARY KEY,
+        attempts INT NOT NULL DEFAULT 0,
+        locked_until INT NOT NULL DEFAULT 0,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+}
+
+/**
+ * @return array{locked:bool,remaining:int,attempts:int}
+ */
+function fwms_login_lockout_status(PDO $pdo, $ip = null) {
+    ensure_login_attempts_table($pdo);
+    $hash = fwms_login_ip_hash($ip);
+    $stmt = $pdo->prepare("SELECT attempts, locked_until FROM login_attempts WHERE ip_hash = ? LIMIT 1");
+    $stmt->execute([$hash]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$row) {
+        return ['locked' => false, 'remaining' => 0, 'attempts' => 0];
+    }
+    $locked_until = (int) $row['locked_until'];
+    $now = time();
+    if ($locked_until > $now) {
+        return [
+            'locked' => true,
+            'remaining' => $locked_until - $now,
+            'attempts' => (int) $row['attempts'],
+        ];
+    }
+    // Lock expired — reset so the next cycle starts clean.
+    if ($locked_until > 0 || (int) $row['attempts'] >= FWMS_MAX_LOGIN_ATTEMPTS) {
+        $clear = $pdo->prepare("UPDATE login_attempts SET attempts = 0, locked_until = 0 WHERE ip_hash = ?");
+        $clear->execute([$hash]);
+        return ['locked' => false, 'remaining' => 0, 'attempts' => 0];
+    }
+    return [
+        'locked' => false,
+        'remaining' => 0,
+        'attempts' => (int) $row['attempts'],
+    ];
+}
+
+function fwms_login_lockout_record_failure(PDO $pdo, $ip = null) {
+    ensure_login_attempts_table($pdo);
+    $hash = fwms_login_ip_hash($ip);
+    $status = fwms_login_lockout_status($pdo, $ip);
+    $attempts = $status['attempts'] + 1;
+    $locked_until = 0;
+    if ($attempts >= FWMS_MAX_LOGIN_ATTEMPTS) {
+        $locked_until = time() + FWMS_LOCKOUT_SECONDS;
+    }
+    $stmt = $pdo->prepare(
+        "INSERT INTO login_attempts (ip_hash, attempts, locked_until)
+         VALUES (?, ?, ?)
+         ON DUPLICATE KEY UPDATE attempts = VALUES(attempts), locked_until = VALUES(locked_until)"
+    );
+    $stmt->execute([$hash, $attempts, $locked_until]);
+    return [
+        'attempts' => $attempts,
+        'locked' => $locked_until > time(),
+        'remaining' => max(0, $locked_until - time()),
+        'attempts_left' => max(0, FWMS_MAX_LOGIN_ATTEMPTS - $attempts),
+    ];
+}
+
+function fwms_login_lockout_clear(PDO $pdo, $ip = null) {
+    ensure_login_attempts_table($pdo);
+    $hash = fwms_login_ip_hash($ip);
+    $stmt = $pdo->prepare("DELETE FROM login_attempts WHERE ip_hash = ?");
+    $stmt->execute([$hash]);
+}
+
+// ==================================================
+// 2c. BACKUP HELPERS
+// ==================================================
+
+function fwms_backup_tables() {
+    return ['settings', 'users', 'workers', 'invoices', 'logs', 'worker_archives', 'additional_payments', 'login_attempts'];
+}
+
+function fwms_build_sql_backup(PDO $pdo) {
+    $tables = fwms_backup_tables();
+    $output = "-- FWMS System Backup\n-- Date: " . date('Y-m-d H:i:s') . "\n\n";
+    $output .= "SET FOREIGN_KEY_CHECKS=0;\n\n";
+
+    foreach ($tables as $table) {
+        try {
+            $exists = $pdo->query("SHOW TABLES LIKE " . $pdo->quote($table))->fetch();
+            if (!$exists) continue;
+
+            $create = $pdo->query("SHOW CREATE TABLE `$table`")->fetch(PDO::FETCH_ASSOC);
+            $output .= "DROP TABLE IF EXISTS `$table`;\n";
+            $output .= $create['Create Table'] . ";\n\n";
+
+            $stmt = $pdo->query("SELECT * FROM `$table`");
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($rows as $row) {
+                $values = array_map(function ($v) use ($pdo) {
+                    if (is_null($v)) return 'NULL';
+                    return $pdo->quote($v);
+                }, $row);
+                $output .= "INSERT INTO `$table` VALUES (" . implode(',', $values) . ");\n";
+            }
+            $output .= "\n\n";
+        } catch (PDOException $e) {
+            error_log("Backup skip $table: " . $e->getMessage());
+        }
+    }
+
+    $output .= "SET FOREIGN_KEY_CHECKS=1;\n";
+    return $output;
+}
+
+/**
+ * Write SQL (+ optional uploads zip) under backups/. Returns metadata array.
+ */
+function fwms_run_scheduled_backup(PDO $pdo, $root_dir = null, $keep_days = 14) {
+    $root_dir = $root_dir ?: dirname(__FILE__);
+    $backup_dir = $root_dir . '/backups';
+    if (!is_dir($backup_dir)) {
+        mkdir($backup_dir, 0755, true);
+    }
+    $htaccess = $backup_dir . '/.htaccess';
+    if (!file_exists($htaccess)) {
+        file_put_contents($htaccess, "Require all denied\n");
+    }
+
+    $stamp = date('Y-m-d_His');
+    $sql_name = "FWMS_Backup_{$stamp}.sql";
+    $sql_path = $backup_dir . '/' . $sql_name;
+    $sql = fwms_build_sql_backup($pdo);
+    if (file_put_contents($sql_path, $sql) === false) {
+        throw new Exception('Could not write SQL backup.');
+    }
+
+    $zip_name = null;
+    $zip_path = null;
+    $uploads = $root_dir . '/uploads';
+    if (class_exists('ZipArchive') && is_dir($uploads)) {
+        $zip_name = "FWMS_Uploads_{$stamp}.zip";
+        $zip_path = $backup_dir . '/' . $zip_name;
+        $zip = new ZipArchive();
+        if ($zip->open($zip_path, ZipArchive::CREATE | ZipArchive::OVERWRITE) === true) {
+            $iterator = new RecursiveIteratorIterator(
+                new RecursiveDirectoryIterator($uploads, FilesystemIterator::SKIP_DOTS)
+            );
+            foreach ($iterator as $file) {
+                if (!$file->isFile()) continue;
+                $relative = 'uploads/' . substr($file->getPathname(), strlen($uploads) + 1);
+                $zip->addFile($file->getPathname(), $relative);
+            }
+            $zip->close();
+        } else {
+            $zip_path = null;
+            $zip_name = null;
+        }
+    }
+
+    // Retention purge
+    $keep_days = max(1, (int) $keep_days);
+    $cutoff = time() - ($keep_days * 86400);
+    foreach (glob($backup_dir . '/FWMS_Backup_*.sql') ?: [] as $old) {
+        if (filemtime($old) < $cutoff) @unlink($old);
+    }
+    foreach (glob($backup_dir . '/FWMS_Uploads_*.zip') ?: [] as $old) {
+        if (filemtime($old) < $cutoff) @unlink($old);
+    }
+
+    return [
+        'sql_file' => $sql_name,
+        'sql_path' => $sql_path,
+        'sql_bytes' => filesize($sql_path),
+        'uploads_zip' => $zip_name,
+        'uploads_path' => $zip_path,
+        'created_at' => date('c'),
+    ];
+}
+
+/**
+ * Lightweight health checks for monitoring.
+ * @return array{status:string,checks:array}
+ */
+function fwms_health_checks(?PDO $pdo = null, $root_dir = null) {
+    $root_dir = $root_dir ?: dirname(__FILE__);
+    $checks = [];
+
+    $db_ok = false;
+    if ($pdo instanceof PDO) {
+        try {
+            $pdo->query('SELECT 1');
+            $db_ok = true;
+        } catch (Exception $e) {
+            $db_ok = false;
+        }
+    }
+    $checks['database'] = ['ok' => $db_ok];
+
+    $uploads = $root_dir . '/uploads';
+    $checks['uploads_writable'] = ['ok' => is_dir($uploads) && is_writable($uploads)];
+
+    $storage = $root_dir . '/storage';
+    if (!is_dir($storage)) @mkdir($storage, 0755, true);
+    $checks['storage_writable'] = ['ok' => is_dir($storage) && is_writable($storage)];
+
+    $backups = $root_dir . '/backups';
+    if (!is_dir($backups)) @mkdir($backups, 0755, true);
+    $checks['backups_writable'] = ['ok' => is_dir($backups) && is_writable($backups)];
+
+    $free = @disk_free_space($root_dir);
+    $checks['disk_space'] = [
+        'ok' => $free === false ? true : ($free > 50 * 1024 * 1024),
+        'free_mb' => $free === false ? null : (int) round($free / 1048576),
+    ];
+
+    $all_ok = true;
+    foreach ($checks as $c) {
+        if (empty($c['ok'])) $all_ok = false;
+    }
+
+    return [
+        'status' => $all_ok ? 'ok' : 'degraded',
+        'checks' => $checks,
+        'time' => date('c'),
+    ];
+}
 
 // ==================================================
 // 3. DATABASE CLASS (PDO WRAPPER)
@@ -297,6 +537,7 @@ class DB {
         $this->pdo = $pdo;
         $this->ensure_workers_insurance_proof_column();
         $this->ensure_performance_indexes();
+        ensure_login_attempts_table($this->pdo);
     }
 
     /** Adds insurance_proof when upgrading older databases (safe no-op if present). */
@@ -798,4 +1039,7 @@ class DB {
 // ==================================================
 // 4. INITIALIZE DATABASE INSTANCE
 // ==================================================
-$db = new DB($pdo);
+$db = null;
+if (!FWMS_SKIP_DB && isset($pdo) && $pdo instanceof PDO) {
+    $db = new DB($pdo);
+}

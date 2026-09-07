@@ -2,9 +2,9 @@
 /**
  * Hardened Login Handler - FWMS
  * Location: root/login.php
- * Version: 4.0.0 (Rate-Limited, Security Hardened)
+ * Version: 5.0.0 (IP-backed lockout)
  */
-require_once 'config.php';
+require_once 'functions.php';
 
 // 1. If already logged in, redirect to dashboard
 if (isset($_SESSION['user_id'])) {
@@ -13,22 +13,10 @@ if (isset($_SESSION['user_id'])) {
 }
 
 $error = '';
-
-// ==================================================
-// BRUTE-FORCE PROTECTION
-// ==================================================
-define('MAX_LOGIN_ATTEMPTS', 5);
-define('LOCKOUT_SECONDS', 900); // 15 minutes
-
-$ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
-$attempt_key = 'login_attempts_' . md5($ip);
-$lockout_key = 'login_lockout_' . md5($ip);
-
-if (!isset($_SESSION[$attempt_key]))  $_SESSION[$attempt_key]  = 0;
-if (!isset($_SESSION[$lockout_key]))  $_SESSION[$lockout_key]   = 0;
-
-$is_locked_out = ($_SESSION[$lockout_key] > time());
-$remaining_lockout = max(0, $_SESSION[$lockout_key] - time());
+$ip = fwms_client_ip();
+$lock = fwms_login_lockout_status($pdo, $ip);
+$is_locked_out = !empty($lock['locked']);
+$remaining_lockout = (int) ($lock['remaining'] ?? 0);
 
 // 2. Handle Login Request
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -38,7 +26,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
         // SECURITY: Verify CSRF Token
         $token = $_POST['csrf_token'] ?? '';
-        if (!hash_equals($_SESSION['csrf_token'], $token)) {
+        if (!hash_equals($_SESSION['csrf_token'] ?? '', $token)) {
             die("Security Check Failed: Invalid CSRF Token.");
         }
 
@@ -53,9 +41,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $user = $stmt->fetch();
 
             if ($user && password_verify($password, $user->password)) {
-                // SUCCESS - reset attempt counter, regenerate session
-                $_SESSION[$attempt_key] = 0;
-                $_SESSION[$lockout_key] = 0;
+                fwms_login_lockout_clear($pdo, $ip);
                 session_regenerate_id(true);
 
                 $_SESSION['user_id']   = (int)$user->id;
@@ -67,15 +53,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 header("Location: index.php");
                 exit;
             } else {
-                // FAILED - increment counter
-                $_SESSION[$attempt_key]++;
-                $attempts_left = MAX_LOGIN_ATTEMPTS - $_SESSION[$attempt_key];
+                $fail = fwms_login_lockout_record_failure($pdo, $ip);
+                $is_locked_out = !empty($fail['locked']);
+                $remaining_lockout = (int) ($fail['remaining'] ?? 0);
 
-                if ($_SESSION[$attempt_key] >= MAX_LOGIN_ATTEMPTS) {
-                    $_SESSION[$lockout_key] = time() + LOCKOUT_SECONDS;
-                    $error = "Account temporarily locked after " . MAX_LOGIN_ATTEMPTS . " failed attempts. Try again in 15 minutes.";
+                if ($is_locked_out) {
+                    $error = "Account temporarily locked after " . FWMS_MAX_LOGIN_ATTEMPTS . " failed attempts. Try again in 15 minutes.";
                 } else {
-                    $error = "Invalid username or password. " . max(0, $attempts_left) . " attempt(s) remaining.";
+                    $error = "Invalid username or password. " . (int) $fail['attempts_left'] . " attempt(s) remaining.";
                 }
             }
         }
@@ -150,7 +135,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         <div class="mt-10 pt-6 border-t border-slate-100">
             <p class="text-center text-[9px] text-slate-300 uppercase font-black tracking-[0.3em]">
-                Security Protocol v4.0 Enabled
+                Security Protocol v5.0 Enabled
             </p>
         </div>
     </div>
