@@ -1,4 +1,7 @@
 .env
+.DS_Store
+**/.DS_Store
+prompt.md
 uploads/*
 !uploads/.htaccess
 backups/*

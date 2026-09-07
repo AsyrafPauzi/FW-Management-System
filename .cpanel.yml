@@ -1,0 +1,25 @@
+---
+# cPanel Git deployment for FW Management System
+# Docs: https://docs.cpanel.net/knowledge-base/web-services/guide-to-git-deployment/
+# Uses $HOME so it works for any cPanel account. Change DEPLOYPATH if the site
+# lives in a subdomain/addon folder (e.g. $HOME/public_html/fwms/).
+deployment:
+  tasks:
+    - export DEPLOYPATH=$HOME/public_html/
+    - /bin/mkdir -p $DEPLOYPATH
+    - /bin/mkdir -p $DEPLOYPATH/uploads $DEPLOYPATH/storage $DEPLOYPATH/backups $DEPLOYPATH/cli $DEPLOYPATH/assets $DEPLOYPATH/views
+    - /bin/cp index.php $DEPLOYPATH
+    - /bin/cp api.php $DEPLOYPATH
+    - /bin/cp config.php $DEPLOYPATH
+    - /bin/cp functions.php $DEPLOYPATH
+    - /bin/cp login.php $DEPLOYPATH
+    - /bin/cp logout.php $DEPLOYPATH
+    - /bin/cp install.php $DEPLOYPATH
+    - /bin/cp health.php $DEPLOYPATH
+    - /bin/cp -R assets/. $DEPLOYPATH/assets/
+    - /bin/cp -R views/. $DEPLOYPATH/views/
+    - /bin/cp -R cli/. $DEPLOYPATH/cli/
+    - /bin/cp uploads/.htaccess $DEPLOYPATH/uploads/.htaccess
+    - /bin/cp storage/.htaccess $DEPLOYPATH/storage/.htaccess
+    - /bin/cp storage/.gitkeep $DEPLOYPATH/storage/.gitkeep
+    - /bin/cp backups/.htaccess $DEPLOYPATH/backups/.htaccess
