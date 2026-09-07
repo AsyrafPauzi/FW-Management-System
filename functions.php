@@ -157,6 +157,66 @@ function sanitize_existing_upload_path($path) {
     return BASE_URL . $local;
 }
 
+/**
+ * Validate wizard fields when advancing a stage (Draft stays permissive).
+ */
+function validate_wizard_stage_advance($stage, array $post, $existing_worker = null) {
+    $stage = (int) $stage;
+    $req = function ($key, $label) use ($post) {
+        $val = trim((string) ($post[$key] ?? ''));
+        if ($val === '') return "$label is required to continue.";
+        return null;
+    };
+    $has_proof = function ($field) use ($existing_worker) {
+        if (!empty($_FILES[$field]['name']) && ($_FILES[$field]['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK) {
+            return true;
+        }
+        return $existing_worker && !empty($existing_worker->$field);
+    };
+
+    $errors = [];
+    if ($stage <= 1) {
+        foreach ([
+            'category' => 'Category',
+            'passport_number' => 'Passport number',
+            'full_name' => 'Full name',
+        ] as $k => $label) {
+            if ($err = $req($k, $label)) $errors[] = $err;
+        }
+    }
+    if ($stage == 4) {
+        foreach ([
+            'insurance_policy' => 'Insurance policy',
+            'insurance_provider' => 'Insurance provider',
+            'insurance_expiry' => 'Insurance expiry',
+        ] as $k => $label) {
+            if ($err = $req($k, $label)) $errors[] = $err;
+        }
+    }
+    if ($stage == 7) {
+        foreach ([
+            'permit_number' => 'Permit sticker number',
+            'permit_issue' => 'Permit issue date',
+            'permit_expiry' => 'Permit expiry date',
+        ] as $k => $label) {
+            if ($err = $req($k, $label)) $errors[] = $err;
+        }
+        if (!$has_proof('epass_worker_proof')) {
+            $errors[] = 'EPASS worker proof is required to continue.';
+        }
+    }
+    if ($stage == 8) {
+        foreach ([
+            'cidb_status' => 'CIDB status',
+            'cidb_category' => 'CIDB category',
+            'cidb_expiry' => 'CIDB expiry',
+        ] as $k => $label) {
+            if ($err = $req($k, $label)) $errors[] = $err;
+        }
+    }
+    return $errors;
+}
+
 // ==================================================
 // 2. INPUT VALIDATION LAYER
 // ==================================================
@@ -236,6 +296,7 @@ class DB {
     public function __construct($pdo) {
         $this->pdo = $pdo;
         $this->ensure_workers_insurance_proof_column();
+        $this->ensure_performance_indexes();
     }
 
     /** Adds insurance_proof when upgrading older databases (safe no-op if present). */
@@ -247,6 +308,34 @@ class DB {
             }
         } catch (PDOException $e) {
             error_log('DB schema note (insurance_proof): ' . $e->getMessage());
+        }
+    }
+
+    /** Add helpful indexes on live DBs (safe no-op if already present). */
+    private function ensure_performance_indexes() {
+        $wanted = [
+            ['workers', 'idx_workers_permit_expiry', 'permit_expiry'],
+            ['workers', 'idx_workers_visa_expiry', 'visa_expiry'],
+            ['workers', 'idx_workers_stage', 'current_stage'],
+            ['workers', 'idx_workers_category', 'category'],
+            ['invoices', 'idx_inv_doc_no', 'doc_no'],
+            ['invoices', 'idx_inv_date', 'invoice_date'],
+            ['additional_payments', 'idx_ap_ref', 'ref_no'],
+            ['additional_payments', 'idx_ap_date', 'payment_date'],
+            ['additional_payments', 'idx_ap_worker', 'worker_id'],
+            ['logs', 'idx_logs_time', 'timestamp'],
+        ];
+        foreach ($wanted as [$table, $name, $column]) {
+            try {
+                $chk = $this->pdo->prepare("SHOW INDEX FROM `$table` WHERE Key_name = ?");
+                $chk->execute([$name]);
+                if ($chk->rowCount() > 0) continue;
+                $col_chk = $this->pdo->query("SHOW COLUMNS FROM `$table` LIKE " . $this->pdo->quote($column));
+                if (!$col_chk || $col_chk->rowCount() === 0) continue;
+                $this->pdo->exec("ALTER TABLE `$table` ADD INDEX `$name` (`$column`)");
+            } catch (PDOException $e) {
+                error_log("DB index note ($table.$name): " . $e->getMessage());
+            }
         }
     }
 
@@ -368,14 +457,16 @@ class DB {
         $sql = "SELECT * FROM workers WHERE " . implode(' AND ', $where) .
                " ORDER BY (permit_expiry IS NULL OR permit_expiry <= '1000-01-01'), permit_expiry ASC";
 
-        if ($limit > 0) {
-            $sql .= " LIMIT ? OFFSET ?";
-            $params[] = (int)$limit;
-            $params[] = (int)$offset;
+        $stmt = $this->pdo->prepare($sql . ($limit > 0 ? " LIMIT ? OFFSET ?" : ""));
+        $i = 1;
+        foreach ($params as $p) {
+            $stmt->bindValue($i++, $p);
         }
-
-        $stmt = $this->pdo->prepare($sql);
-        $stmt->execute($params);
+        if ($limit > 0) {
+            $stmt->bindValue($i++, (int) $limit, PDO::PARAM_INT);
+            $stmt->bindValue($i++, (int) $offset, PDO::PARAM_INT);
+        }
+        $stmt->execute();
         return $stmt->fetchAll();
     }
 
@@ -441,9 +532,12 @@ class DB {
         return $stmt->fetch();
     }
 
-    public function check_global_receipt_usage($receipt) {
-        $stmt1 = $this->pdo->prepare("SELECT w.id, w.full_name, w.passport_number, 'Payment List' as source FROM additional_payments ap JOIN workers w ON ap.worker_id = w.id WHERE ap.ref_no = ? LIMIT 1");
-        $stmt1->execute([$receipt]);
+    public function check_global_receipt_usage($receipt, $exclude_worker_id = 0) {
+        $receipt = trim((string) $receipt);
+        if ($receipt === '') return false;
+
+        $stmt1 = $this->pdo->prepare("SELECT w.id, w.full_name, w.passport_number, 'Payment List' as source FROM additional_payments ap JOIN workers w ON ap.worker_id = w.id WHERE ap.ref_no = ? AND ap.worker_id != ? LIMIT 1");
+        $stmt1->execute([$receipt, (int) $exclude_worker_id]);
         $res1 = $stmt1->fetch();
         if ($res1) return $res1;
 

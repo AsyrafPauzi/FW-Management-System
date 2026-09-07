@@ -161,6 +161,15 @@ if ($action === 'save_worker') {
 
         if ($id == 0) $data['created_by'] = $_SESSION['user_name'];
 
+        $existing_worker = ($id > 0) ? $db->get_worker($id) : null;
+        $is_advance = isset($_POST['advance_stage']) && $_POST['advance_stage'] == 'true';
+        if ($is_advance) {
+            $stage_errors = validate_wizard_stage_advance($current_stage, $_POST, $existing_worker);
+            if (!empty($stage_errors)) {
+                throw new Exception(implode(' ', $stage_errors));
+            }
+        }
+
         // Prepare payment rows before opening the DB transaction
         $payment_rows = [];
         if (isset($_POST['add_pay_desc']) && is_array($_POST['add_pay_desc'])) {
@@ -169,9 +178,23 @@ if ($action === 'save_worker') {
             $amts = $_POST['add_pay_amount'] ?? [];
             $dates = $_POST['add_pay_date'] ?? [];
             $existing_files = $_POST['existing_pay_proof'] ?? [];
+            $seen_refs = [];
 
             for ($i = 0; $i < count($descs); $i++) {
                 if (empty($descs[$i]) && empty($refs[$i])) continue;
+
+                $ref = sanitize_text_field($refs[$i] ?? '');
+                if ($ref !== '') {
+                    $ref_key = strtolower($ref);
+                    if (isset($seen_refs[$ref_key])) {
+                        throw new Exception("Duplicate receipt/ref on this form: $ref");
+                    }
+                    $seen_refs[$ref_key] = true;
+                    $dup = $db->check_global_receipt_usage($ref, $id);
+                    if ($dup) {
+                        throw new Exception("Receipt/ref already used for: " . ($dup->full_name ?? 'another record'));
+                    }
+                }
 
                 $proof_path = sanitize_existing_upload_path($existing_files[$i] ?? '');
 
@@ -191,7 +214,7 @@ if ($action === 'save_worker') {
 
                 $payment_rows[] = [
                     sanitize_text_field($descs[$i] ?? ''),
-                    sanitize_text_field($refs[$i] ?? ''),
+                    $ref,
                     floatval($amts[$i] ?? 0),
                     $pay_date,
                     $proof_path,
@@ -509,12 +532,16 @@ if ($action === 'check_passport') {
 if ($action === 'check_receipt') {
     $receipt = sanitize_text_field($_POST['receipt'] ?? '');
     $exclude_id = intval($_POST['exclude_id'] ?? 0);
+    if ($receipt === '') {
+        echo json_encode(['exists' => false]);
+        exit;
+    }
 
-    $stmt2 = $db->pdo->prepare("SELECT w.full_name FROM additional_payments ap JOIN workers w ON ap.worker_id = w.id WHERE ap.description = ? AND ap.worker_id != ? LIMIT 1");
-    $stmt2->execute([$receipt, $exclude_id]);
-    $res2 = $stmt2->fetch();
-    if ($res2) {
-        echo json_encode(['exists' => true, 'message' => "Exists in Payments for: " . $res2->full_name]);
+    $dup = $db->check_global_receipt_usage($receipt, $exclude_id);
+    if ($dup) {
+        $who = $dup->full_name ?? 'another record';
+        $src = $dup->source ?? 'system';
+        echo json_encode(['exists' => true, 'message' => "Already used ($src) for: $who"]);
         exit;
     }
 

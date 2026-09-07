@@ -2,18 +2,37 @@
 /**
  * View: Worker Directory (Final Fix)
  * Location: views/workers.php
- * Version: 4.2.5 (High-Contrast Renewal & Expiry Fix)
+ * Version: 4.3.0 (Server-side pagination)
  */
 
-// 1. Handle Filters
-$search = sanitize_text_field($_POST['s'] ?? '');
-$cat = sanitize_text_field($_POST['cat'] ?? '');
-$start = sanitize_text_field($_POST['start_date'] ?? '');
-$end = sanitize_text_field($_POST['end_date'] ?? '');
+// 1. Handle Filters (GET keeps pagination links working)
+$search = sanitize_text_field($_GET['s'] ?? $_POST['s'] ?? '');
+$cat = sanitize_text_field($_GET['cat'] ?? $_POST['cat'] ?? '');
+$start = sanitize_text_field($_GET['start_date'] ?? $_POST['start_date'] ?? '');
+$end = sanitize_text_field($_GET['end_date'] ?? $_POST['end_date'] ?? '');
+$per_page = 10;
+$paged = max(1, intval($_GET['paged'] ?? 1));
+$offset = ($paged - 1) * $per_page;
 
 // 2. Fetch Workers (Order by Expiry ASC handled in functions.php)
-$workers = $db->get_all_workers($search, $cat, $start, $end);
+$total_workers = $db->count_workers($search, $cat, $start, $end);
+$total_pages = max(1, (int) ceil($total_workers / $per_page));
+if ($paged > $total_pages) $paged = $total_pages;
+$offset = ($paged - 1) * $per_page;
+$workers = $db->get_all_workers($search, $cat, $start, $end, '', $per_page, $offset);
 $is_admin = current_user_can_admin();
+
+function workers_page_url($page, $search, $cat, $start, $end) {
+    $q = http_build_query(array_filter([
+        'page' => 'workers',
+        'paged' => (int) $page,
+        's' => $search,
+        'cat' => $cat,
+        'start_date' => $start,
+        'end_date' => $end,
+    ], function ($v) { return $v !== '' && $v !== null; }));
+    return '?' . $q;
+}
 
 // Stage Mappings
 $stages = [1=>'Identity', 2=>'Reg Pay', 3=>'FOMEMA', 4=>'Insurance', 5=>'Levy Pay', 7=>'Permit', 8=>'CIDB', 9=>'Completed'];
@@ -64,7 +83,8 @@ $stages = [1=>'Identity', 2=>'Reg Pay', 3=>'FOMEMA', 4=>'Insurance', 5=>'Levy Pa
 
     <!-- FILTER BAR -->
     <div class="bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-200 mb-10">
-        <form method="POST" class="grid grid-cols-12 gap-4 items-end">
+        <form method="GET" class="grid grid-cols-12 gap-4 items-end">
+            <input type="hidden" name="page" value="workers">
             <div class="col-span-12 lg:col-span-4">
                 <label class="lbl">Search registry</label>
                 <input type="text" name="s" id="filter_search" value="<?php echo e($search); ?>" class="inp h-11" placeholder="Passport or Name...">
@@ -195,7 +215,28 @@ $stages = [1=>'Identity', 2=>'Reg Pay', 3=>'FOMEMA', 4=>'Insurance', 5=>'Levy Pa
                 </tbody>
             </table>
         </div>
-        <div id="workers-pagination"></div>
+        <div id="workers-pagination" class="flex flex-col sm:flex-row items-center justify-between gap-3 px-6 py-4 border-t border-slate-100">
+            <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                <?php
+                $from = $total_workers === 0 ? 0 : $offset + 1;
+                $to = min($offset + $per_page, $total_workers);
+                echo 'Showing ' . $from . '–' . $to . ' of ' . $total_workers;
+                ?>
+            </span>
+            <?php if ($total_pages > 1): ?>
+            <div class="flex gap-1">
+                <a href="<?php echo e(workers_page_url(max(1, $paged - 1), $search, $cat, $start, $end)); ?>" class="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase <?php echo $paged <= 1 ? 'bg-slate-50 text-slate-300 pointer-events-none' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'; ?>">&lsaquo;</a>
+                <?php
+                $start_p = max(1, $paged - 2);
+                $end_p = min($total_pages, $paged + 2);
+                for ($p = $start_p; $p <= $end_p; $p++):
+                ?>
+                <a href="<?php echo e(workers_page_url($p, $search, $cat, $start, $end)); ?>" class="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase <?php echo $p === $paged ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'; ?>"><?php echo (int)$p; ?></a>
+                <?php endfor; ?>
+                <a href="<?php echo e(workers_page_url(min($total_pages, $paged + 1), $search, $cat, $start, $end)); ?>" class="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase <?php echo $paged >= $total_pages ? 'bg-slate-50 text-slate-300 pointer-events-none' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'; ?>">&rsaquo;</a>
+            </div>
+            <?php endif; ?>
+        </div>
     </div>
 </div>
 
@@ -204,9 +245,3 @@ $stages = [1=>'Identity', 2=>'Reg Pay', 3=>'FOMEMA', 4=>'Insurance', 5=>'Levy Pa
     .inp { width:100%; background:#f8fafc; border:none; padding:10px 16px; border-radius:12px; font-weight:bold; color:#334155; outline:none; transition:all 0.2s; box-shadow: inset 0 2px 4px 0 rgb(0 0 0 / 0.05); }
     .inp:focus { background:#fff; box-shadow:0 0 0 2px #3b82f6; }
 </style>
-
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    setupPagination({ id: 'workers', tbodyId: 'workers-tbody', navId: 'workers-pagination', perPage: 10 });
-});
-</script>

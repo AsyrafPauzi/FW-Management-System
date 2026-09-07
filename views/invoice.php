@@ -2,23 +2,27 @@
 /**
  * View: Hardened Invoice Generator & History
  * Location: views/invoice.php
- * Version: 5.0.0 (Dynamic Labels & Account Name Sync)
+ * Version: 5.1.0 (Server-side history pagination)
  */
 
-// 1. Fetch Data using the Standalone DB class
-$invoices = $db->pdo->query("SELECT * FROM invoices ORDER BY created_at DESC LIMIT 50")->fetchAll();
+$per_page = 20;
+$paged = max(1, intval($_GET['paged'] ?? 1));
+$offset = ($paged - 1) * $per_page;
+
+$total_invoices = (int) $db->pdo->query("SELECT COUNT(*) FROM invoices")->fetchColumn();
+$total_pages = max(1, (int) ceil($total_invoices / $per_page));
+if ($paged > $total_pages) $paged = $total_pages;
+$offset = ($paged - 1) * $per_page;
+
+$stmt = $db->pdo->prepare("SELECT * FROM invoices ORDER BY created_at DESC LIMIT ? OFFSET ?");
+$stmt->bindValue(1, $per_page, PDO::PARAM_INT);
+$stmt->bindValue(2, $offset, PDO::PARAM_INT);
+$stmt->execute();
+$invoices = $stmt->fetchAll();
 $is_admin = current_user_can_admin();
 
-// Distinct recipient names for Pay To / Bill To suggestions
-$client_names = [];
-foreach ($invoices as $inv) {
-    $name = trim($inv->client_name ?? '');
-    if ($name !== '') {
-        $client_names[$name] = true;
-    }
-}
-$client_names = array_keys($client_names);
-sort($client_names, SORT_NATURAL | SORT_FLAG_CASE);
+// Distinct recipient names for Pay To / Bill To suggestions (all history, not just current page)
+$client_names = $db->pdo->query("SELECT DISTINCT client_name FROM invoices WHERE client_name IS NOT NULL AND client_name != '' ORDER BY client_name ASC")->fetchAll(PDO::FETCH_COLUMN);
 ?>
 
 <div class="container mx-auto px-2 md:px-0 animate-fade-in pb-20">
@@ -208,5 +212,25 @@ sort($client_names, SORT_NATURAL | SORT_FLAG_CASE);
                 </tbody>
             </table>
         </div>
+        <?php if ($total_pages > 1 || $total_invoices > 0): ?>
+        <div class="flex flex-col sm:flex-row items-center justify-between gap-3 px-6 py-4 border-t border-slate-100 bg-white">
+            <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                <?php
+                $from = $total_invoices === 0 ? 0 : $offset + 1;
+                $to = min($offset + $per_page, $total_invoices);
+                echo 'Showing ' . $from . '–' . $to . ' of ' . $total_invoices;
+                ?>
+            </span>
+            <?php if ($total_pages > 1): ?>
+            <div class="flex gap-1">
+                <a href="?page=invoice&paged=<?php echo max(1, $paged - 1); ?>" class="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase <?php echo $paged <= 1 ? 'bg-slate-50 text-slate-300 pointer-events-none' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'; ?>">&lsaquo;</a>
+                <?php for ($p = max(1, $paged - 2); $p <= min($total_pages, $paged + 2); $p++): ?>
+                <a href="?page=invoice&paged=<?php echo (int)$p; ?>" class="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase <?php echo $p === $paged ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'; ?>"><?php echo (int)$p; ?></a>
+                <?php endfor; ?>
+                <a href="?page=invoice&paged=<?php echo min($total_pages, $paged + 1); ?>" class="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase <?php echo $paged >= $total_pages ? 'bg-slate-50 text-slate-300 pointer-events-none' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'; ?>">&rsaquo;</a>
+            </div>
+            <?php endif; ?>
+        </div>
+        <?php endif; ?>
     </div>
 </div>

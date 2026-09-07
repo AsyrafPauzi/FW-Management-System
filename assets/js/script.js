@@ -798,14 +798,13 @@ window.toggleReportFilters = function() {
     };
 
 // =======================================================
-    // 5. WIZARD VALIDATION (Added Step 7 EPASS Check)
+    // 5. WIZARD VALIDATION (current-step required fields + EPASS)
     // =======================================================
-    function validateStepData() {
+    window.validateStepData = function() {
         var isValid = true;
-        var currentTab = $('.fws-step-content:not(.hidden-step)'); 
+        var currentTab = $('.fws-step-content:not(.hidden-step)');
         var stepId = currentTab.attr('id');
 
-        // 1. Standard Inputs
         currentTab.find('[data-required="true"]').each(function() {
             var input = $(this);
             if (input.prop('disabled') || input.prop('readonly')) return;
@@ -817,45 +816,32 @@ window.toggleReportFilters = function() {
             }
         });
 
-        // 2. File Validation Helper
         function validateFile(fieldName) {
             var fileInput = currentTab.find('input[name="' + fieldName + '"]');
             if (fileInput.length === 0 || fileInput.prop('disabled')) return true;
-            // Check if new file selected OR existing link present
             var hasNew = fileInput.val() !== '';
-            var hasOld = currentTab.find('a[href*="uploads"]').filter(function() {
-                return $(this).attr('href').includes(fieldName.replace('_proof','')); // Fuzzy match based on context or just check sibling
-            }).length > 0;
-            
-            // Simpler check: Look for the specific link structure if possible, 
-            // or just check if the "Uploaded" text exists near the input
-            if(currentTab.find('input[name="'+fieldName+'"]').parent().next().find('a').length > 0) hasOld = true;
-
+            var hasOld = fileInput.closest('div').parent().find('a[href*="uploads"]').length > 0
+                || currentTab.find('.bg-emerald-50 a[href*="uploads"]').length > 0;
             if (!hasNew && !hasOld) {
-                fileInput.addClass('border-red-500 ring-2 ring-red-100'); 
+                fileInput.addClass('border-red-500 ring-2 ring-red-100');
                 return false;
-            } else {
-                fileInput.removeClass('border-red-500 ring-2 ring-red-100'); 
-                return true;
             }
+            fileInput.removeClass('border-red-500 ring-2 ring-red-100');
+            return true;
         }
 
-        // 3. Step-Specific Rules
-        if (stepId === 'step-content-2') { if (!validateFile('payment1_proof')) isValid = false; }
-        if (stepId === 'step-content-5') { if (!validateFile('payment2_proof')) isValid = false; }
-        
-        // NEW: Step 7 EPASS Mandatory
-        if (stepId === 'step-content-7') { 
+        if (stepId === 'step-content-7') {
             if (!validateFile('epass_worker_proof')) {
                 isValid = false;
-                // Highlight the specific area
-                $('input[name="epass_worker_proof"]').closest('div').addClass('border-red-500');
+                $('input[name="epass_worker_proof"]').closest('div').addClass('ring-2 ring-red-100');
             }
         }
 
-        if (!isValid) Swal.fire({ icon: 'warning', title: 'Missing Data', text: 'Please fill all required fields and upload mandatory documents.' });
+        if (!isValid) {
+            Swal.fire({ icon: 'warning', title: 'Missing Data', text: 'Please fill all required fields and upload mandatory documents before continuing.' });
+        }
         return isValid;
-    }
+    };
 
 // =======================================================
 // 6. JQUERY EVENT LISTENERS (DOCUMENT READY)
@@ -961,25 +947,23 @@ $(document).on('click', '.fws-edit-inv', function(e) {
     $('#btn-export-pdf').on('click', function(e) { e.preventDefault(); window.executeExport('pdf'); });
     $('#btn-export-csv').on('click', function(e) { e.preventDefault(); window.executeExport('csv'); });
 
-    // D. Receipt Check (Local + Global)
-    $(document).on('change', '.receipt-val, .check-receipt-ref', function() {
+    // D. Receipt Check (Ref No only)
+    $(document).on('change', '.check-receipt-ref, input[name="add_pay_ref[]"]', function() {
         var input = $(this);
         var receipt = input.val().trim();
         if (receipt === '') return;
 
-        // Local Check
         var count = 0;
-        $('.receipt-val, .check-receipt-ref').each(function() {
+        $('.check-receipt-ref, input[name="add_pay_ref[]"]').each(function() {
             if ($(this).val().trim().toLowerCase() === receipt.toLowerCase()) count++;
         });
 
         if (count > 1) {
-            Swal.fire({ icon: 'error', title: 'Duplicate Detected', text: 'Receipt number used elsewhere on this page.' });
+            Swal.fire({ icon: 'error', title: 'Duplicate Detected', text: 'Receipt/ref number used elsewhere on this page.' });
             input.val('').addClass('border-red-500').focus();
             return;
         }
 
-        // Global Check
         $.post(API_URL, { action: 'check_receipt', receipt: receipt, exclude_id: $('input[name="worker_id"]').val(), csrf_token: CSRF_TOKEN }, function(res) {
             if (res.exists) {
                 Swal.fire({ icon: 'error', title: 'Receipt Already Used', text: res.message });
@@ -1078,10 +1062,14 @@ $(document).on('click', '.fws-edit-inv', function(e) {
     // H. Save Worker
     $('.fws-btn-save').on('click', function(e) {
         e.preventDefault();
+        var willAdvance = $(this).data('advance') === true;
+        if (willAdvance && typeof window.validateStepData === 'function' && !window.validateStepData()) {
+            return;
+        }
         var formData = new FormData($('#fws-wizard-form')[0]);
         formData.append('action', 'save_worker');
         formData.append('csrf_token', CSRF_TOKEN);
-        if($(this).data('advance') === true) formData.append('advance_stage', 'true');
+        if (willAdvance) formData.append('advance_stage', 'true');
         Swal.fire({ title: 'Syncing...', didOpen: () => Swal.showLoading() });
         $.ajax({
             url: API_URL, type: 'POST', data: formData, processData: false, contentType: false, dataType: 'json',

@@ -237,10 +237,10 @@ window.staffSaveOnPriorSteps = <?php echo (!$is_fully_completed && $can_edit_use
                                     <?php foreach($additional_payments as $ap): ?>
                                     <div class="grid grid-cols-12 gap-2 payment-row items-center bg-blue-50/30 p-3 rounded-2xl border border-blue-100">
                                         <div class="col-span-3">
-                                            <input type="text" name="add_pay_desc[]" value="<?php echo e($ap->description); ?>" class="receipt-val w-full text-xs font-bold bg-transparent outline-none p-2" readonly placeholder="Description">
+                                            <input type="text" name="add_pay_desc[]" value="<?php echo e($ap->description); ?>" class="w-full text-xs font-bold bg-transparent outline-none p-2" readonly placeholder="Description">
                                         </div>
                                         <div class="col-span-2">
-                                            <input type="text" name="add_pay_ref[]" value="<?php echo e($ap->ref_no); ?>" class="receipt-val w-full text-xs font-bold bg-transparent outline-none p-2" readonly placeholder="Ref No">
+                                            <input type="text" name="add_pay_ref[]" value="<?php echo e($ap->ref_no); ?>" class="check-receipt-ref w-full text-xs font-bold bg-transparent outline-none p-2" readonly placeholder="Ref No">
                                         </div>
                                         <div class="col-span-2">
                                             <input type="number" name="add_pay_amount[]" value="<?php echo e($ap->amount); ?>" class="add-pay-amt w-full text-xs font-bold bg-transparent outline-none text-right p-2" readonly>
