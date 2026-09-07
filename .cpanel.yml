@@ -6,7 +6,7 @@
 # cPanel → Domains / Subdomains and update DEPLOYPATH to match.
 deployment:
   tasks:
-    - export DEPLOYPATH=$HOME/public_html/internal/
+    - export DEPLOYPATH=$HOME/public_html/internal.agdsports.com/
     - /bin/mkdir -p $DEPLOYPATH
     - /bin/mkdir -p $DEPLOYPATH/uploads $DEPLOYPATH/storage $DEPLOYPATH/backups $DEPLOYPATH/cli $DEPLOYPATH/assets $DEPLOYPATH/views
     - /bin/cp index.php $DEPLOYPATH
