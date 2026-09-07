@@ -62,6 +62,18 @@ function current_user_can_delete() {
  * Centralized permission gate for API actions.
  * Sends JSON error and exits if permission is denied.
  */
+function sync_session_permissions_from_db($db) {
+    if (!isset($_SESSION['user_id'])) return;
+    $stmt = $db->pdo->prepare("SELECT role, can_edit, can_delete FROM users WHERE id = ? LIMIT 1");
+    $stmt->execute([(int)$_SESSION['user_id']]);
+    $u = $stmt->fetch();
+    if ($u) {
+        $_SESSION['user_role'] = $u->role;
+        $_SESSION['can_edit'] = (int)$u->can_edit;
+        $_SESSION['can_delete'] = (int)$u->can_delete;
+    }
+}
+
 function require_permission($level = 'edit') {
     $ok = false;
     if ($level === 'admin')  $ok = current_user_can_admin();

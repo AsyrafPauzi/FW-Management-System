@@ -412,7 +412,10 @@ window.staffSaveOnPriorSteps = <?php echo (!$is_fully_completed && $can_edit_use
                     <span class="text-[10px] font-black uppercase text-blue-500 tracking-widest">Cycle Archived: <?php echo format_date_my($a->archive_date); ?></span>
                     <span class="bg-slate-900 text-white text-[8px] font-bold px-3 py-1 rounded-full uppercase">Category: <?php echo e($d->category ?? 'N/A'); ?></span>
                     <?php if ($can_edit_user): ?>
-                    <button type="button" onclick="window.deleteWorkerArchive(<?php echo (int)$a->id; ?>, <?php echo (int)$worker_id; ?>)" class="text-[9px] font-black uppercase text-red-600 hover:text-red-800 border border-red-200 hover:border-red-400 px-3 py-1 rounded-lg transition">Remove</button>
+                    <button type="button"
+                        class="btn-remove-worker-archive text-[9px] font-black uppercase text-red-600 hover:text-red-800 border border-red-200 hover:border-red-400 px-3 py-1 rounded-lg transition cursor-pointer"
+                        data-archive-id="<?php echo (int)$a->id; ?>"
+                        data-worker-id="<?php echo (int)$worker_id; ?>">Remove</button>
                     <?php endif; ?>
                 </div>
                 
@@ -447,6 +450,22 @@ window.staffSaveOnPriorSteps = <?php echo (!$is_fully_completed && $can_edit_use
     window.addEventListener('load', function() {
         if(typeof window.switchTab === 'function') {
             window.switchTab(window.activeStep);
+        }
+    });
+    document.addEventListener('click', function(e) {
+        var btn = e.target.closest('.btn-remove-worker-archive');
+        if (!btn) return;
+        e.preventDefault();
+        e.stopPropagation();
+        var archiveId = parseInt(btn.getAttribute('data-archive-id'), 10);
+        var workerId = parseInt(btn.getAttribute('data-worker-id'), 10);
+        if (!archiveId || !workerId) return;
+        if (typeof window.deleteWorkerArchive === 'function') {
+            window.deleteWorkerArchive(archiveId, workerId);
+        } else if (typeof Swal !== 'undefined') {
+            Swal.fire({ icon: 'error', title: 'Scripts outdated', text: 'Please hard-refresh the page (Ctrl+F5 or Cmd+Shift+R) and try again.' });
+        } else {
+            alert('Please refresh the page and try again.');
         }
     });
 </script>

@@ -12,6 +12,10 @@ var API_URL = 'api.php';
 var CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]')
     ? document.querySelector('meta[name="csrf-token"]').getAttribute('content')
     : '';
+function getCsrfToken() {
+    var meta = document.querySelector('meta[name="csrf-token"]');
+    return meta ? meta.getAttribute('content') : CSRF_TOKEN;
+}
 if (typeof CURRENT_USER_ACCOUNT_NAME === 'undefined') { var CURRENT_USER_ACCOUNT_NAME = 'Authorized User'; }
 
 $.ajaxSetup({
@@ -424,6 +428,10 @@ window.renewWorker = function(id, name) {
  * Remove a mistaken renewal archive entry (wizard footer section).
  */
 window.deleteWorkerArchive = function(archiveId, workerId) {
+    if (typeof Swal === 'undefined') {
+        alert('Dialog library not loaded. Please refresh the page.');
+        return;
+    }
     Swal.fire({
         title: 'Remove this archive?',
         text: 'Only use if Renew was clicked by mistake. This cannot be undone.',
@@ -436,9 +444,15 @@ window.deleteWorkerArchive = function(archiveId, workerId) {
             confirmButton: 'bg-red-600 text-white px-8 py-3 rounded-xl font-black uppercase text-xs shadow-xl',
             cancelButton: 'bg-slate-100 text-slate-400 px-8 py-3 rounded-xl font-black uppercase text-xs ml-2'
         },
-        buttonsStyling: false
+        buttonsStyling: false,
+        heightAuto: false,
+        didOpen: function() {
+            var popup = Swal.getPopup();
+            if (popup) popup.style.zIndex = '20000';
+        }
     }).then(function(result) {
-        if (!result.isConfirmed) return;
+        if (!result || !result.isConfirmed) return;
+        Swal.fire({ title: 'Removing...', allowOutsideClick: false, didOpen: function() { Swal.showLoading(); } });
         $.ajax({
             url: API_URL,
             type: 'POST',
@@ -447,18 +461,24 @@ window.deleteWorkerArchive = function(archiveId, workerId) {
                 action: 'delete_worker_archive',
                 archive_id: archiveId,
                 worker_id: workerId,
-                csrf_token: CSRF_TOKEN
+                csrf_token: getCsrfToken()
             },
             success: function(res) {
-                if (res.success) {
+                if (res && res.success) {
                     Swal.fire({ icon: 'success', title: 'Archive removed', timer: 1200, showConfirmButton: false })
                         .then(function() { window.location.reload(); });
                 } else {
-                    Swal.fire('Error', res.data || 'Could not remove archive.', 'error');
+                    var msg = (res && res.data) ? (typeof res.data === 'string' ? res.data : 'Could not remove archive.') : 'Could not remove archive.';
+                    Swal.fire('Error', msg, 'error');
                 }
             },
-            error: function() {
-                Swal.fire('Network Error', 'Could not reach server.', 'error');
+            error: function(xhr) {
+                var msg = 'Could not reach server.';
+                try {
+                    var j = JSON.parse(xhr.responseText);
+                    if (j && j.data) msg = j.data;
+                } catch (e) {}
+                Swal.fire('Error', msg, 'error');
             }
         });
     });
@@ -834,13 +854,28 @@ jQuery(document).ready(function($) {
     
     
     
+    function parseInvoiceRowJson(el) {
+        var raw = $(el).attr('data-json');
+        if (!raw) return null;
+        try {
+            return JSON.parse(raw);
+        } catch (err) {
+            console.error('Invalid invoice row JSON:', err);
+            return null;
+        }
+    }
+
     // =======================================================
 // FIX: INVOICE EDIT HANDLER (DATA POPULATION FIX)
 // =======================================================
 $(document).on('click', '.fws-edit-inv', function(e) {
     e.preventDefault();
     
-    var d = $(this).data('json');
+    var d = parseInvoiceRowJson(this);
+    if (!d) {
+        Swal.fire('Error', 'Could not load document data. Please refresh and try again.', 'error');
+        return;
+    }
 
     // SECURITY CHECK: Block staff from editing OR
     if (USER_ROLE === 'staff' && d.type === 'Official Receipt') {
@@ -852,7 +887,6 @@ $(document).on('click', '.fws-edit-inv', function(e) {
         });
         return;
     }
-    if (!d) return;
 
     // 2. Populate Header Fields
     $('#inv_id').val(d.id);
@@ -890,6 +924,15 @@ $(document).on('click', '.fws-edit-inv', function(e) {
     // 5. Smooth scroll back to the top form
     window.scrollTo({ top: 0, behavior: 'smooth' });
 });
+
+    // Fill Pay To / Bill To from a history recipient name
+    $(document).on('click', '.fws-fill-client', function(e) {
+        e.preventDefault();
+        var name = $(this).data('client');
+        if (!name) return;
+        $('#inv_client').val(name).trigger('focus');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
 
     // A. Add Payment Button
     $(document).on('click', '#btn-add-payment-row', function(e) {
@@ -1056,16 +1099,21 @@ $(document).on('click', '.fws-edit-inv', function(e) {
     // J. Manual Save PDF
     $('#fws-save-gen-pdf').on('click', function(e) {
         e.preventDefault();
-        var type = $('#inv_type').val(); var client = $('#inv_client').val(); var docNo = $('#inv_no').val(); var date = $('#inv_date').val();
+        var type = $('#inv_type').val();
+        var client = $('#inv_client').val().trim();
+        var docNo = $('#inv_no').val();
+        var date = $('#inv_date').val();
+        var invId = parseInt($('#inv_id').val(), 10) || 0;
         var items = []; var total = 0;
         $('.inv-row').each(function() { 
             var d = $(this).find('.inv-desc').val(); var q = $(this).find('.inv-qty').val(); var p = $(this).find('.inv-price').val();
             if(d && q && p) { items.push({desc:d, qty:q, price:p}); total += (q*p); }
         });
-        if(items.length === 0 || !client) { Swal.fire('Error', 'Details missing.', 'warning'); return; }
+        if (!client) { Swal.fire('Error', 'Please enter a recipient name in Pay To / Bill To.', 'warning'); return; }
+        if(items.length === 0) { Swal.fire('Error', 'Please add at least one line item.', 'warning'); return; }
         $.ajax({
             url: API_URL, type: 'POST', dataType: 'json',
-            data: { action: 'save_invoice', type: type, doc_no: docNo, date: date, client: client, items_json: JSON.stringify(items), amount: total, csrf_token: CSRF_TOKEN },
+            data: { action: 'save_invoice', id: invId, type: type, doc_no: docNo, date: date, client: client, items_json: JSON.stringify(items), amount: total, csrf_token: CSRF_TOKEN },
             success: function(res) {
                 if(res.success) { window.generateAGDReceipt({ type: type, docNo: docNo, date: date, client: client, desc: items.map(i=>i.desc).join(", "), amount: total }); location.reload(); }
             }
@@ -1121,8 +1169,12 @@ $(document).on('click', '.fws-edit-inv', function(e) {
 // =======================================================
 $(document).on('click', '.fws-download-inv', function(e) { 
     e.preventDefault();
-    var d = $(this).data('json');
-    var items = JSON.parse(d.items_json);
+    var d = parseInvoiceRowJson(this);
+    if (!d) {
+        Swal.fire('Error', 'Could not load document data. Please refresh and try again.', 'error');
+        return;
+    }
+    var items = (typeof d.items_json === 'string') ? JSON.parse(d.items_json) : d.items_json;
     
     // Join descriptions using real newlines
     var combinedDesc = items.map(function(i) {

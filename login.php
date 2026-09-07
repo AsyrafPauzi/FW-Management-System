@@ -61,8 +61,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['user_id']   = (int)$user->id;
                 $_SESSION['user_name'] = $user->username;
                 $_SESSION['user_role'] = $user->role;
-                $_SESSION['can_edit']  = $user->can_edit;
-                $_SESSION['can_delete']= $user->can_delete;
+                $_SESSION['can_edit']  = (int)$user->can_edit;
+                $_SESSION['can_delete']= (int)$user->can_delete;
 
                 header("Location: index.php");
                 exit;

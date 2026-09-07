@@ -337,6 +337,7 @@ if ($action === 'archive_worker') {
 }
 
 if ($action === 'delete_worker_archive') {
+    sync_session_permissions_from_db($db);
     require_permission('edit');
     $archive_id = intval($_POST['archive_id'] ?? 0);
     $worker_id = intval($_POST['worker_id'] ?? 0);

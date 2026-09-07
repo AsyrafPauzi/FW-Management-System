@@ -8,6 +8,17 @@
 // 1. Fetch Data using the Standalone DB class
 $invoices = $db->pdo->query("SELECT * FROM invoices ORDER BY created_at DESC LIMIT 50")->fetchAll();
 $is_admin = current_user_can_admin();
+
+// Distinct recipient names for Pay To / Bill To suggestions
+$client_names = [];
+foreach ($invoices as $inv) {
+    $name = trim($inv->client_name ?? '');
+    if ($name !== '') {
+        $client_names[$name] = true;
+    }
+}
+$client_names = array_keys($client_names);
+sort($client_names, SORT_NATURAL | SORT_FLAG_CASE);
 ?>
 
 <div class="container mx-auto px-2 md:px-0 animate-fade-in pb-20">
@@ -52,7 +63,12 @@ $is_admin = current_user_can_admin();
                         <div>
                             <!-- UPDATED: Added ID to label for dynamic switching in script.js -->
                             <label id="dynamic_recipient_label" class="block text-[10px] font-black uppercase text-slate-400 mb-2 tracking-widest ml-2">Bill To / Pay To</label>
-                            <input type="text" id="inv_client" class="w-full bg-slate-50 border-none p-4 rounded-2xl focus:ring-2 focus:ring-blue-500 transition font-bold text-slate-700 shadow-sm outline-none" placeholder="Enter name or company">
+                            <input type="text" id="inv_client" list="inv_client_suggestions" autocomplete="off" class="w-full bg-slate-50 border-none p-4 rounded-2xl focus:ring-2 focus:ring-blue-500 transition font-bold text-slate-700 shadow-sm outline-none" placeholder="Enter name or company">
+                            <datalist id="inv_client_suggestions">
+                                <?php foreach ($client_names as $client_name): ?>
+                                    <option value="<?php echo e($client_name); ?>">
+                                <?php endforeach; ?>
+                            </datalist>
                         </div>
                     </div>
                     <!-- Column 2 -->
@@ -154,7 +170,15 @@ $is_admin = current_user_can_admin();
                                 <?php echo e($inv->type); ?>
                             </span>
                         </td>
-                        <td class="p-6 font-bold text-slate-700 min-w-[150px]"><?php echo e($inv->client_name); ?></td>
+                        <td class="p-6 font-bold text-slate-700 min-w-[150px]">
+                            <?php if (!empty($inv->client_name)): ?>
+                                <button type="button" class="fws-fill-client text-left hover:text-blue-600 transition-colors" data-client="<?php echo e($inv->client_name); ?>" title="Use this name in Pay To / Bill To">
+                                    <?php echo e($inv->client_name); ?>
+                                </button>
+                            <?php else: ?>
+                                <span class="text-slate-300">—</span>
+                            <?php endif; ?>
+                        </td>
                         <td class="p-6 text-right font-black text-slate-800 text-sm whitespace-nowrap">MYR <?php echo number_format($inv->amount, 2); ?></td>
                         <td class="p-6 text-right">
                             <div class="flex justify-end gap-2">
