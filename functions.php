@@ -10,14 +10,35 @@ require_once 'config.php';
 // 1. SECURITY & COMPATIBILITY HELPERS
 // ==================================================
 
+/**
+ * Decode accidental HTML entities stored in DB (e.g. "&amp;" -> "&").
+ * Loops a few times in case values were double-encoded.
+ */
+function decode_stored_text($str) {
+    $str = (string) $str;
+    for ($i = 0; $i < 3; $i++) {
+        $decoded = html_entity_decode($str, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        if ($decoded === $str) break;
+        $str = $decoded;
+    }
+    return $str;
+}
+
+/**
+ * Clean user input for DB storage. Do NOT htmlspecialchars here —
+ * that belongs only in e() at output time (avoids "&" becoming "&amp;").
+ */
 function sanitize_text_field($str) {
     if (is_array($str)) return $str;
-    return htmlspecialchars(strip_tags(trim($str ?? '')), ENT_QUOTES, 'UTF-8');
+    $str = strip_tags(trim($str ?? ''));
+    $str = str_replace("\0", '', $str);
+    return decode_stored_text($str);
 }
 
 function e($str) {
     if (is_null($str)) return '';
-    return htmlspecialchars($str, ENT_QUOTES, 'UTF-8');
+    // Decode first so legacy "&amp;" rows display as "&"
+    return htmlspecialchars(decode_stored_text($str), ENT_QUOTES, 'UTF-8');
 }
 
 function selected($val1, $val2, $echo = true) {
