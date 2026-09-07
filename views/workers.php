@@ -63,19 +63,17 @@ $stages = [1=>'Identity', 2=>'Reg Pay', 3=>'FOMEMA', 4=>'Insurance', 5=>'Levy Pa
             <a href="?page=wizard" class="h-11 bg-slate-900 text-white px-6 rounded-xl font-black uppercase text-[10px] tracking-widest flex items-center shadow-lg hover:bg-blue-600 transition transform active:scale-95">
                 + New Worker
             </a>
+            <?php if ($is_admin): ?>
             <div class="flex items-center gap-2">
-    <!-- DOWNLOAD TEMPLATE BUTTON -->
     <button onclick="downloadImportTemplate()" class="h-11 bg-slate-100 text-slate-500 px-4 rounded-xl font-black uppercase text-[10px] hover:bg-slate-200 transition">
-        ⬇ Template
+        Template
     </button>
-
-    <!-- BULK IMPORT BUTTON -->
     <button onclick="triggerImport()" class="h-11 bg-emerald-50 text-emerald-600 px-4 rounded-xl font-black uppercase text-[10px] border border-emerald-100 hover:bg-emerald-600 hover:text-white transition">
-        ↑ Bulk Import
+        Bulk Import
     </button>
 </div>
-<!-- Hidden file input -->
 <input type="file" id="import_excel_file" class="hidden" accept=".xlsx, .xls">
+            <?php endif; ?>
 
 
         </div>
@@ -112,13 +110,13 @@ $stages = [1=>'Identity', 2=>'Reg Pay', 3=>'FOMEMA', 4=>'Insurance', 5=>'Levy Pa
         </form>
     </div>
 
-    <!-- TABLE -->
+    <!-- TABLE (desktop) -->
     <div class="bg-white rounded-[2.5rem] shadow-2xl border border-slate-200 overflow-hidden">
-        <div class="overflow-x-auto custom-scrollbar">
-            <table class="fws-table w-full text-left border-collapse min-w-[1000px]">
+        <div class="hidden md:block overflow-x-auto custom-scrollbar">
+            <table class="fws-table w-full text-left border-collapse min-w-[900px]">
                 <thead class="bg-slate-900 text-white text-[10px] uppercase font-black tracking-widest">
                     <tr>
-                        <th class="p-6">Worker Profile</th>
+                        <th class="p-6 sticky left-0 bg-slate-900 z-10">Worker Profile</th>
                         <th class="p-6">Category</th>
                         <th class="p-6">Stage</th>
                         <th class="p-6">Permit Expiry</th>
@@ -139,7 +137,6 @@ $stages = [1=>'Identity', 2=>'Reg Pay', 3=>'FOMEMA', 4=>'Insurance', 5=>'Levy Pa
                         $exp_class = 'text-slate-400';
                         $show_renewal = false;
                         
-                        // RENEWAL & EXPIRY LOGIC
                         if($exp && $exp != '0000-00-00' && $exp != '1970-01-01') {
                             $expiry_time = strtotime($exp);
                             $now = time();
@@ -148,7 +145,7 @@ $stages = [1=>'Identity', 2=>'Reg Pay', 3=>'FOMEMA', 4=>'Insurance', 5=>'Levy Pa
                             if($days_diff < 0) {
                                 $exp_class = 'text-red-600 font-black animate-pulse';
                                 $show_renewal = true;
-                            } elseif($days_diff <= 90) { // 3 months or less
+                            } elseif($days_diff <= 90) {
                                 $exp_class = 'text-orange-500 font-black';
                                 $show_renewal = true;
                             } else {
@@ -157,7 +154,7 @@ $stages = [1=>'Identity', 2=>'Reg Pay', 3=>'FOMEMA', 4=>'Insurance', 5=>'Levy Pa
                         }
                     ?>
                         <tr class="hover:bg-slate-50 transition-all group">
-                            <td class="p-6">
+                            <td class="p-6 sticky left-0 bg-white group-hover:bg-slate-50 z-10">
                                 <a href="?page=wizard&id=<?php echo (int)$w->id; ?>" class="block focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded-lg -m-1 p-1">
                                     <div class="font-black text-slate-800 text-sm uppercase group-hover:text-blue-600 transition hover:text-blue-600"><?php echo e($w->passport_number); ?></div>
                                     <div class="text-slate-400 text-[9px] font-black uppercase group-hover:text-slate-600"><?php echo e($w->full_name); ?></div>
@@ -186,20 +183,14 @@ $stages = [1=>'Identity', 2=>'Reg Pay', 3=>'FOMEMA', 4=>'Insurance', 5=>'Levy Pa
                                     <?php if($show_renewal): ?>
                                         <button onclick="renewWorker(<?php echo (int)$w->id; ?>, '<?php echo addslashes(e($w->full_name)); ?>')" 
                                                 class="bg-orange-500 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-md hover:bg-orange-600 transition flex items-center gap-1">
-                                            <span>🔄</span> Renew
+                                            Renew
                                         </button>
                                     <?php endif; ?>
-
-                                   <!-- MANAGE/EDIT BUTTON -->
-        <!-- Admin always can, Staff checks 'can_edit' permission -->
         <?php if($is_admin || (isset($_SESSION['can_edit']) && $_SESSION['can_edit'] == 1)): ?>
         <a href="?page=wizard&id=<?php echo (int)$w->id; ?>" class="bg-blue-50 text-blue-600 px-4 py-2 rounded-xl text-[10px] font-black hover:bg-blue-600 hover:text-white transition shadow-sm">
             Manage
         </a>
         <?php endif; ?>
-        
-        <!-- DELETE BUTTON -->
-        <!-- Only show if Admin OR Staff has 'can_delete' permission -->
         <?php if($is_admin || (isset($_SESSION['can_delete']) && $_SESSION['can_delete'] == 1)): ?>
         <button class="fws-delete-worker text-slate-300 hover:text-red-600 transition transform hover:scale-125 ml-2" 
                 data-id="<?php echo (int)$w->id; ?>">
@@ -215,6 +206,49 @@ $stages = [1=>'Identity', 2=>'Reg Pay', 3=>'FOMEMA', 4=>'Insurance', 5=>'Levy Pa
                 </tbody>
             </table>
         </div>
+
+        <!-- MOBILE CARDS -->
+        <div class="md:hidden divide-y divide-slate-100">
+            <?php if (empty($workers)): ?>
+                <p class="p-10 text-center text-slate-300 font-bold uppercase italic text-xs">No worker records found.</p>
+            <?php else: foreach ($workers as $w):
+                $stage_val = intval($w->current_stage);
+                $stage_name = ($stage_val >= 8) ? 'Completed' : ($stages[$stage_val] ?? 'Processing');
+                $exp = $w->permit_expiry;
+                $exp_display = format_date_my($exp);
+                $show_renewal = false;
+                if ($exp && $exp != '0000-00-00' && $exp != '1970-01-01') {
+                    $days_diff = floor((strtotime($exp) - time()) / 86400);
+                    if ($days_diff <= 90) $show_renewal = true;
+                }
+            ?>
+            <div class="p-5 space-y-3">
+                <a href="?page=wizard&id=<?php echo (int)$w->id; ?>" class="block">
+                    <div class="font-black text-slate-900 uppercase text-sm"><?php echo e($w->passport_number); ?></div>
+                    <div class="text-[11px] font-bold text-slate-500 uppercase"><?php echo e($w->full_name); ?></div>
+                </a>
+                <div class="flex flex-wrap gap-2 text-[9px] font-black uppercase">
+                    <span class="bg-slate-100 text-slate-600 px-2 py-1 rounded-lg"><?php echo e($w->category ?? 'General'); ?></span>
+                    <span class="bg-blue-50 text-blue-600 px-2 py-1 rounded-lg"><?php echo e($stage_name); ?></span>
+                    <span class="bg-slate-50 text-slate-500 px-2 py-1 rounded-lg">Permit <?php echo $exp_display; ?></span>
+                </div>
+                <div class="flex items-center justify-between gap-2">
+                    <div class="text-xs font-black <?php echo ($w->balance_due > 0) ? 'text-red-600' : 'text-emerald-600'; ?>">
+                        <?php echo ($w->balance_due > 0) ? ('MYR ' . number_format((float)$w->balance_due, 2)) : 'Fully Paid'; ?>
+                    </div>
+                    <div class="flex gap-2">
+                        <?php if ($show_renewal): ?>
+                        <button type="button" onclick="renewWorker(<?php echo (int)$w->id; ?>, '<?php echo addslashes(e($w->full_name)); ?>')" class="bg-orange-500 text-white px-3 py-2 rounded-xl text-[9px] font-black uppercase">Renew</button>
+                        <?php endif; ?>
+                        <?php if ($is_admin || (!empty($_SESSION['can_edit']))): ?>
+                        <a href="?page=wizard&id=<?php echo (int)$w->id; ?>" class="bg-blue-600 text-white px-3 py-2 rounded-xl text-[9px] font-black uppercase">Open</a>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            </div>
+            <?php endforeach; endif; ?>
+        </div>
+
         <div id="workers-pagination" class="flex flex-col sm:flex-row items-center justify-between gap-3 px-6 py-4 border-t border-slate-100">
             <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">
                 <?php

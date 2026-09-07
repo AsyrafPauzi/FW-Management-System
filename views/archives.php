@@ -67,10 +67,31 @@ $all_archives = $stmt->fetchAll();
         </form>
     </div>
 
-    <!-- MASTER TABLE -->
+    <!-- MASTER TABLE (desktop) + compact cards (mobile) -->
     <div class="bg-white rounded-[2.5rem] shadow-2xl border border-slate-200 overflow-hidden">
-        <div class="overflow-x-auto custom-scrollbar">
-            <!-- Increased min-width to accommodate ALL 28+ columns -->
+        <div class="lg:hidden p-4 space-y-3">
+            <p class="text-[10px] font-black uppercase text-slate-400 tracking-widest px-1">Mobile summary — use Excel/PDF for full columns</p>
+            <?php if (empty($all_archives)): ?>
+                <p class="p-8 text-center text-slate-300 font-bold uppercase italic text-xs">No archived records found.</p>
+            <?php else: foreach ($all_archives as $a):
+                $snapshot = json_decode($a->archive_data);
+                $d = isset($snapshot->worker_details) ? $snapshot->worker_details : $snapshot;
+            ?>
+            <div class="border border-slate-100 rounded-2xl p-4 bg-slate-50/50">
+                <div class="font-black text-blue-600 text-sm"><?php echo e($a->passport_number); ?></div>
+                <div class="text-[11px] font-bold text-slate-700 uppercase"><?php echo e($a->full_name); ?></div>
+                <div class="mt-2 grid grid-cols-2 gap-2 text-[10px] font-bold text-slate-500">
+                    <div>Archived<br><span class="text-slate-800"><?php echo date('d/m/Y', strtotime($a->archive_date)); ?></span></div>
+                    <div>Category<br><span class="text-slate-800 uppercase"><?php echo e($d->category ?? '-'); ?></span></div>
+                    <div>Permit Exp<br><span class="text-red-600"><?php echo format_date_my($d->permit_expiry ?? ''); ?></span></div>
+                    <div>Balance<br><span class="text-slate-800">MYR <?php echo number_format((float)($d->balance_due ?? 0), 2); ?></span></div>
+                </div>
+            </div>
+            <?php endforeach; endif; ?>
+        </div>
+
+        <div class="hidden lg:block overflow-x-auto custom-scrollbar">
+            <!-- Increased min-width to accommodate ALL columns -->
             <table class="w-full text-left border-collapse min-w-[4200px]">
                 <thead>
                     <tr class="bg-slate-900 text-white text-[9px] uppercase font-black tracking-widest text-center">
@@ -82,7 +103,7 @@ $all_archives = $stmt->fetchAll();
                         <th class="p-4 border-r border-slate-700" colspan="2">Levy Status</th>
                         <th class="p-4 border-r border-slate-700" colspan="4">Permit (PLKS)</th>
                         <th class="p-4" colspan="3">CIDB Details</th>
-                        <th class="p-4" colspan="4">Documents</th>
+                        <th class="p-4" colspan="1">Documents</th>
                     </tr>
                     <tr class="bg-slate-800 text-slate-300 text-[8px] uppercase font-black tracking-tighter">
                         <!-- System -->
@@ -103,7 +124,7 @@ $all_archives = $stmt->fetchAll();
                         <!-- CIDB -->
                         <th class="p-4">Status</th><th class="p-4">Category</th><th class="p-4">Expiry Date</th>
                         
-                        <th class="p-4">Documents Proof</th><
+                        <th class="p-4">Documents Proof</th>
                     </tr>
                 </thead>
                 <tbody id="archives-tbody" class="divide-y divide-slate-100 text-[11px] font-bold text-slate-600">

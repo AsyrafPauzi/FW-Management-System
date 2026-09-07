@@ -17,7 +17,7 @@ $paged = isset($_GET['paged']) ? max(1, intval($_GET['paged'])) : 1;
 $offset = ($limit == -1) ? 0 : ($paged - 1) * $limit;
 
 // 3. Fetch Data from DB
-// Calls the get_logs method in functions.php which includes the 3-month cleanup logic
+// Calls get_logs (also purges logs older than 90 days)
 $logs = $db->get_logs($limit, $offset);
 $total_items = (int)$db->get_total_logs();
 $total_pages = ($limit == -1) ? 1 : ceil($total_items / $limit);

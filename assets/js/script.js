@@ -100,7 +100,6 @@ $(document).on('change', '#import_excel_file', function(e) {
             allowOutsideClick: false
         });
 
-        // Send rows to API
         $.ajax({
             url: API_URL,
             type: 'POST',
@@ -114,59 +113,16 @@ $(document).on('change', '#import_excel_file', function(e) {
                 if(res.success) {
                     Swal.fire('Import Success', res.data + ' workers added.', 'success').then(() => location.reload());
                 } else {
-                    Swal.fire('Partial Success', res.data, 'warning');
+                    Swal.fire('Import Failed', res.data || 'Could not import workers.', 'error');
                 }
-            }
-        });
-    };
-    reader.readAsArrayBuffer(file);
-});
-
-
-window.triggerImport = function() {
-    $('#import_excel_file').click();
-};
-
-$(document).on('change', '#import_excel_file', function(e) {
-    var file = e.target.files[0];
-    if (!file) return;
-
-    var reader = new FileReader();
-    reader.onload = function(e) {
-        var data = new Uint8Array(e.target.result);
-        var workbook = XLSX.read(data, {type: 'array'});
-        var sheet = workbook.Sheets[workbook.SheetNames[0]];
-        var rows = XLSX.utils.sheet_to_json(sheet);
-
-        if(rows.length === 0) { Swal.fire('Error', 'Excel file is empty.', 'error'); return; }
-
-        Swal.fire({
-            title: 'Importing ' + rows.length + ' Workers',
-            text: 'Processing records, please wait...',
-            didOpen: () => Swal.showLoading(),
-            allowOutsideClick: false
-        });
-
-        // Send rows to API
-        $.ajax({
-            url: API_URL,
-            type: 'POST',
-            dataType: 'json',
-            data: { 
-                action: 'bulk_import_workers', 
-                workers: JSON.stringify(rows), 
-                csrf_token: CSRF_TOKEN 
             },
-            success: function(res) {
-                if(res.success) {
-                    Swal.fire('Import Success', res.data + ' workers added.', 'success').then(() => location.reload());
-                } else {
-                    Swal.fire('Partial Success', res.data, 'warning');
-                }
+            error: function() {
+                Swal.fire('Network Error', 'Could not reach server.', 'error');
             }
         });
     };
     reader.readAsArrayBuffer(file);
+    $(this).val('');
 });
 
 
@@ -631,113 +587,6 @@ if (data.type === 'Payment Voucher') {
     } catch(err) { console.error(err); }
 };
 
-function completePDF(doc, data) {
-    // --- 2. HEADER DETAILS ---
-    doc.setFont("helvetica", "bold"); 
-    doc.setTextColor(0, 0, 139); 
-    doc.setFontSize(16);
-    doc.text("AGD MANAGEMENT SERVICES SDN BHD", 40, 15);
-    
-    doc.setFont("helvetica", "normal"); 
-    doc.setTextColor(0, 0, 0); 
-    doc.setFontSize(9);
-    doc.text("Suite 05-01, 5th Floor Wisma TKS, 3rd Mile, Jalan Sultan Azlan Shah,", 40, 20);
-    doc.text("51200 Kuala Lumpur", 40, 24);
-    doc.text("Tel: 03-40505006  Email: asiaglobal2011@gmail.com", 40, 28);
-
-    // --- 3. TITLE (CENTERED) & DOC INFO (SAME LINE) ---
-    var headerY = 45; 
-
-    // Center Title
-    var title = data.type.toUpperCase();
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(14);
-    doc.text(title, 105, headerY, {align: 'center'});
-    
-    // Underline Title
-    var textWidth = doc.getTextWidth(title);
-    doc.setLineWidth(0.5);
-    doc.line(105 - (textWidth/2), headerY + 1.5, 105 + (textWidth/2), headerY + 1.5);
-
-    // Doc Info (Right Side, Same Line)
-    doc.setFontSize(10);
-    doc.setFont("helvetica", "normal");
-    doc.text("No   :  " + data.docNo, 145, headerY);
-    var displayDate = data.date.split('-').reverse().join('/');
-    doc.text("Date :  " + displayDate, 145, headerY + 5);
-
-    // --- 4. BODY CONTENT ---
-    var startY = 65;
-    var lineGap = 11;
-
-    // Row 1: Name
-    var label = "Received From"; // Default for Official Receipt
-if (data.type === 'Payment Voucher') {
-    label = "Pay To";
-} else if (data.type === 'Refund Receipt') {
-    label = "Refunded To";
-} else if (data.type === 'Invoice') {
-    label = "Bill To";
-}
-    doc.text(label, 15, startY);
-    doc.text(":", 45, startY);
-    doc.setFont("helvetica", "bold");
-    doc.text(data.client.toUpperCase(), 50, startY);
-    doc.setLineWidth(0.1);
-    doc.line(50, startY+1, 195, startY+1);
-
-    // Row 2: Sum of
-    startY += lineGap;
-    doc.setFont("helvetica", "normal");
-    doc.text("The sum of (RM)", 15, startY);
-    doc.text(":", 45, startY);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(9);
-    doc.text(window.convertNumberToWords(data.amount), 50, startY);
-    doc.line(50, startY+1, 195, startY+1);
-
-    // Row 3: Description
-    startY += 10;
-        doc.setFontSize(10);
-        doc.setFont("helvetica", "normal");
-        doc.text("Description", 15, startY);
-        doc.text(":", 45, startY);
-        doc.setFont("helvetica", "bold");
-    
-    // THE FIX: Convert literal "n" or "\\n" back into real breaks, and remove corrupted "N"
-        var cleanDesc = data.desc.replace(/\\n/g, "\n").replace(/\nN/g, "\n").replace(/nn/g, "\n\n");
-        
-        var descLines = doc.splitTextToSize(cleanDesc.toUpperCase(), 140);
-        doc.text(descLines, 50, startY);
-
-    
-
-    // Amount Box
-    doc.setFontSize(14);
-    doc.setFont("helvetica", "bold");
-    doc.text("RM :   " + parseFloat(data.amount).toLocaleString('en-US', {minimumFractionDigits: 2}), 15, footerY);
-    doc.setLineWidth(0.5);
-    doc.line(15, footerY+1.5, 60, footerY+1.5);
-    doc.line(15, footerY+2.5, 60, footerY+2.5);
-
-    // Signature Area
-    var signX = 135;
-    doc.setFontSize(10);
-    doc.setFont("helvetica", "normal");
-    doc.text("Issued by,", signX, footerY - 5); 
-    
-    // Name sits ON the line
-    var issuerName = data.issuer || CURRENT_USER_ACCOUNT_NAME;
-    doc.setFont("helvetica", "bold");
-    doc.text(issuerName.toUpperCase(), signX, footerY + 8); 
-
-    // The Line
-    doc.setLineWidth(0.1);
-    doc.line(signX, footerY + 10, 195, footerY + 10); 
-
-    doc.save(data.docNo + ".pdf");
-}
-
 // =======================================================
 // 5. REPORTS DASHBOARD LOGIC
 // =======================================================
@@ -979,22 +828,7 @@ $(document).on('click', '.fws-edit-inv', function(e) {
         var client = $('#worker_full_name').val() || 'Client Name';
         var totalAmount = 0; var descriptions = [];
 
-        // 1. Registration
-        var rAmt = parseFloat($('#payment1_amount').val()) || 0;
-        if(rAmt > 0) { 
-            totalAmount += rAmt; 
-            // \n forces the (REF: ...) to the next line
-            descriptions.push("REGISTRATION PAYMENT\n(REF: " + ($('#payment1_receipt').val() || '-') + ")"); 
-        }
-
-        // 2. Levy
-        var lAmt = parseFloat($('#payment2_amount').val()) || 0;
-        if(lAmt > 0) { 
-            totalAmount += lAmt; 
-            descriptions.push("LEVY PAYMENT\n(REF: " + ($('#payment2_receipt').val() || '-') + ")"); 
-        }
-
-        // 3. Dynamic Rows
+        // Dynamic payment rows only (legacy payment1/payment2 fields removed from wizard)
         $('.payment-row').each(function() {
             var aAmt = parseFloat($(this).find('.add-pay-amt').val()) || parseFloat($(this).find('input[type="number"]').val()) || 0;
             var aDesc = $(this).find('input[name*="desc"]').val() || $(this).find('input[readonly]').val();
@@ -1006,7 +840,10 @@ $(document).on('click', '.fws-edit-inv', function(e) {
             }
         });
 
-        if(totalAmount <= 0) return;
+        if(totalAmount <= 0) {
+            Swal.fire('No Payments', 'Add at least one payment row with amount before generating OR.', 'info');
+            return;
+        }
 
         var docNo = "OR-" + Date.now().toString().slice(-6);
         var date = new Date().toISOString().slice(0,10);

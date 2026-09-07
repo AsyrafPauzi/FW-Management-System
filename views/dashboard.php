@@ -10,8 +10,8 @@ $stats = $db->get_stats();
 $recent = $db->get_recent_workers(5); 
 $expiring = $db->get_expiring_workers(5);
 
-// Current Stage Labels for the Chart
-$chart_labels = ['Biodata', 'Reg Pay', 'FOMEMA', 'Insurance', 'Levy Pay', 'Levy Info', 'Permit', 'CIDB', 'Completed'];
+// Current Stage Labels for the Chart (aligned with wizard)
+$chart_labels = $stats['stage_labels'] ?? ['Reg & Pay', 'FOMEMA', 'Insurance', 'Levy', 'Permit', 'CIDB/Done'];
 ?>
 
 <div class="space-y-6 md:space-y-10 animate-fade-in pb-20 px-1">
@@ -111,7 +111,7 @@ $chart_labels = ['Biodata', 'Reg Pay', 'FOMEMA', 'Insurance', 'Levy Pay', 'Levy 
                     <h3 class="font-black text-white text-xs uppercase tracking-widest flex items-center gap-2 leading-none">
                         <span class="animate-pulse text-red-500">⬤</span> Compliance Alert
                     </h3>
-                    <p class="text-[9px] text-slate-500 uppercase font-bold mt-1">Automated Expiry Prioritization</p>
+                    <p class="text-[9px] text-slate-500 uppercase font-bold mt-1">Permit · Visa · Insurance · CIDB · FOMEMA</p>
                 </div>
                 <div class="flex gap-2">
                     <span class="bg-red-500 text-white text-[9px] font-black px-2 py-1 rounded-lg">CRITICAL: <?php echo count($intelligence['critical']); ?></span>

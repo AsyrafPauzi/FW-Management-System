@@ -358,24 +358,41 @@ class DB {
     }
 
     // --------------------------------------------------
-    // EXPIRY INTELLIGENCE (Visa Only)
+    // EXPIRY INTELLIGENCE (Permit / Visa / Insurance / CIDB)
     // --------------------------------------------------
     public function get_compliance_alerts() {
         $alerts = ['critical' => [], 'warning' => [], 'upcoming' => []];
-        $date_fields = ['visa_expiry' => 'Visa'];
-        $stmt = $this->pdo->query("SELECT id, full_name, passport_number, visa_expiry FROM workers");
+        $date_fields = [
+            'permit_expiry' => 'Permit',
+            'visa_expiry' => 'Visa',
+            'insurance_expiry' => 'Insurance',
+            'cidb_expiry' => 'CIDB',
+            'fomema_expiry' => 'FOMEMA',
+        ];
+        $stmt = $this->pdo->query("SELECT id, full_name, passport_number, permit_expiry, visa_expiry, insurance_expiry, cidb_expiry, fomema_expiry FROM workers");
         $workers = $stmt->fetchAll();
         $now = new DateTime();
 
         foreach ($workers as $w) {
             foreach ($date_fields as $field => $label) {
                 if (empty($w->$field) || $w->$field == '0000-00-00' || $w->$field == '1970-01-01') continue;
-                $exp = new DateTime($w->$field);
+                try {
+                    $exp = new DateTime($w->$field);
+                } catch (Exception $e) {
+                    continue;
+                }
                 $diff = $now->diff($exp);
-                $days = $diff->days;
+                $days = (int) $diff->days;
                 if ($exp < $now) $days = -$days;
 
-                $item = ['id' => $w->id, 'name' => $w->full_name, 'passport' => $w->passport_number, 'label' => $label, 'date' => $w->$field, 'days' => $days];
+                $item = [
+                    'id' => $w->id,
+                    'name' => $w->full_name,
+                    'passport' => $w->passport_number,
+                    'label' => $label,
+                    'date' => $w->$field,
+                    'days' => $days,
+                ];
 
                 if ($days <= 30)       $alerts['critical'][] = $item;
                 elseif ($days <= 60)   $alerts['warning'][]  = $item;
@@ -402,13 +419,21 @@ class DB {
         $stats['fomema_pending'] = $this->pdo->query("SELECT COUNT(*) FROM workers WHERE current_stage = 3")->fetchColumn();
         $stats['completed']      = $this->pdo->query("SELECT COUNT(*) FROM workers WHERE current_stage >= 8")->fetchColumn();
 
-        $stages = array_fill(1, 9, 0);
+        // Buckets aligned to current wizard: 1 Reg, 3 FOMEMA, 4 Ins, 5 Levy, 7 Permit, 8+ Done
+        $bucket = [0, 0, 0, 0, 0, 0];
         $res = $this->pdo->query("SELECT current_stage, COUNT(*) as count FROM workers GROUP BY current_stage")->fetchAll();
         foreach ($res as $r) {
-            $idx = (int)$r->current_stage;
-            if ($idx >= 1 && $idx <= 9) $stages[$idx] = (int)$r->count;
+            $idx = (int) $r->current_stage;
+            $count = (int) $r->count;
+            if ($idx <= 2) $bucket[0] += $count;
+            elseif ($idx == 3) $bucket[1] += $count;
+            elseif ($idx == 4) $bucket[2] += $count;
+            elseif ($idx == 5 || $idx == 6) $bucket[3] += $count;
+            elseif ($idx == 7) $bucket[4] += $count;
+            else $bucket[5] += $count; // 8+
         }
-        $stats['stage_dist'] = array_values($stages);
+        $stats['stage_dist'] = $bucket;
+        $stats['stage_labels'] = ['Reg & Pay', 'FOMEMA', 'Insurance', 'Levy', 'Permit', 'CIDB/Done'];
         $stats['heatmap']    = $this->pdo->query("SELECT DATE(timestamp) as date, COUNT(*) as count FROM logs WHERE timestamp > DATE_SUB(NOW(), INTERVAL 30 DAY) GROUP BY DATE(timestamp)")->fetchAll();
 
         $this->cache_set('stats', $stats);
@@ -730,6 +755,7 @@ class DB {
     }
 
     public function get_logs($limit = 20, $offset = 0) {
+        $this->purge_old_logs();
         if ($limit == -1) return $this->pdo->query("SELECT * FROM logs ORDER BY timestamp DESC")->fetchAll();
         $stmt = $this->pdo->prepare("SELECT * FROM logs ORDER BY timestamp DESC LIMIT ? OFFSET ?");
         $stmt->bindValue(1, (int)$limit, PDO::PARAM_INT);
@@ -739,6 +765,19 @@ class DB {
     }
 
     public function get_total_logs() { return $this->pdo->query("SELECT COUNT(*) FROM logs")->fetchColumn(); }
+
+    /** Delete audit logs older than 90 days (runs at most once per request cache). */
+    public function purge_old_logs($days = 90) {
+        static $done = false;
+        if ($done) return;
+        $done = true;
+        try {
+            $days = max(30, (int) $days);
+            $this->pdo->prepare("DELETE FROM logs WHERE timestamp < DATE_SUB(NOW(), INTERVAL ? DAY)")->execute([$days]);
+        } catch (PDOException $e) {
+            error_log('Log retention note: ' . $e->getMessage());
+        }
+    }
 
     // --------------------------------------------------
     // EMAIL NOTIFICATIONS (Compliance Alerts)
