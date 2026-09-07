@@ -978,18 +978,30 @@ class DB {
     // CONTACTS DIRECTORY
     // --------------------------------------------------
     public function get_contacts($search = '') {
-        $search = trim((string) $search);
-        if ($search !== '') {
-            $like = '%' . $search . '%';
-            $stmt = $this->pdo->prepare(
-                "SELECT * FROM contacts
-                 WHERE name LIKE ? OR company LIKE ? OR phone LIKE ? OR email LIKE ?
-                 ORDER BY name ASC"
-            );
-            $stmt->execute([$like, $like, $like, $like]);
-            return $stmt->fetchAll();
+        try {
+            $this->ensure_contacts_table();
+            $search = trim((string) $search);
+            if ($search !== '') {
+                // INSTR matches literally (safe for &, %, _, etc.)
+                $stmt = $this->pdo->prepare(
+                    "SELECT * FROM contacts
+                     WHERE INSTR(name, ?) > 0
+                        OR INSTR(IFNULL(company, ''), ?) > 0
+                        OR INSTR(IFNULL(phone, ''), ?) > 0
+                        OR INSTR(IFNULL(email, ''), ?) > 0
+                        OR INSTR(IFNULL(address, ''), ?) > 0
+                        OR INSTR(IFNULL(notes, ''), ?) > 0
+                     ORDER BY name ASC"
+                );
+                $stmt->execute([$search, $search, $search, $search, $search, $search]);
+                return $stmt->fetchAll() ?: [];
+            }
+            $rows = $this->pdo->query("SELECT * FROM contacts ORDER BY name ASC");
+            return $rows ? ($rows->fetchAll() ?: []) : [];
+        } catch (PDOException $e) {
+            error_log('get_contacts: ' . $e->getMessage());
+            return [];
         }
-        return $this->pdo->query("SELECT * FROM contacts ORDER BY name ASC")->fetchAll();
     }
 
     public function get_contact_names() {

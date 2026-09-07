@@ -2,13 +2,16 @@
 /**
  * View: Contacts Directory
  * Location: views/contacts.php
- * Version: 1.0.0
+ * Version: 1.1.0
  */
 
 $can_edit = current_user_can_edit();
 $can_delete = current_user_can_delete();
 $q = sanitize_text_field($_GET['q'] ?? '');
 $contacts = $db->get_contacts($q);
+if (!is_array($contacts)) {
+    $contacts = [];
+}
 ?>
 
 <div class="container mx-auto max-w-5xl px-2 md:px-0 animate-fade-in pb-20">
@@ -24,15 +27,22 @@ $contacts = $db->get_contacts($q);
         <?php endif; ?>
     </div>
 
-    <form method="GET" class="mb-6 flex flex-col sm:flex-row gap-3">
+    <form method="GET" action="index.php" class="mb-6 flex flex-col sm:flex-row gap-3" id="contacts-search-form">
         <input type="hidden" name="page" value="contacts">
         <input type="search" name="q" value="<?php echo e($q); ?>" placeholder="Search name, company, phone, email..."
-            class="flex-1 bg-white border-2 border-slate-100 p-4 rounded-2xl font-bold text-slate-700 shadow-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-50">
+            class="flex-1 bg-white border-2 border-slate-100 p-4 rounded-2xl font-bold text-slate-700 shadow-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-50"
+            autocomplete="off">
         <button type="submit" class="bg-slate-100 text-slate-700 px-6 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-200 transition">Search</button>
         <?php if ($q !== ''): ?>
-        <a href="?page=contacts" class="bg-white border-2 border-slate-100 text-slate-400 px-6 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-50 transition text-center">Clear</a>
+        <a href="index.php?page=contacts" class="bg-white border-2 border-slate-100 text-slate-400 px-6 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-slate-50 transition text-center">Clear</a>
         <?php endif; ?>
     </form>
+
+    <?php if ($q !== ''): ?>
+    <p class="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4">
+        Search: “<?php echo e($q); ?>” · <?php echo count($contacts); ?> result<?php echo count($contacts) === 1 ? '' : 's'; ?>
+    </p>
+    <?php endif; ?>
 
     <div class="bg-white rounded-[2rem] md:rounded-[2.5rem] shadow-2xl border border-slate-200 overflow-hidden shadow-slate-200/50">
         <div class="overflow-x-auto custom-scrollbar">
@@ -54,6 +64,18 @@ $contacts = $db->get_contacts($q);
                     </tr>
                     <?php else: ?>
                     <?php foreach ($contacts as $c): ?>
+                    <?php
+                        $payload = [
+                            'id' => (int) $c->id,
+                            'name' => (string) ($c->name ?? ''),
+                            'company' => (string) ($c->company ?? ''),
+                            'phone' => (string) ($c->phone ?? ''),
+                            'email' => (string) ($c->email ?? ''),
+                            'address' => (string) ($c->address ?? ''),
+                            'notes' => (string) ($c->notes ?? ''),
+                        ];
+                        $payload_json = htmlspecialchars(json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT), ENT_QUOTES, 'UTF-8');
+                    ?>
                     <tr class="hover:bg-slate-50/80 transition-all group">
                         <td class="p-5 md:p-8">
                             <div class="font-black text-slate-800 tracking-tight text-base md:text-lg"><?php echo e($c->name); ?></div>
@@ -71,7 +93,7 @@ $contacts = $db->get_contacts($q);
                         <td class="p-5 md:p-8 text-right">
                             <div class="flex justify-end gap-2 md:gap-3">
                                 <?php if ($can_edit): ?>
-                                <button type="button" onclick='editContact(<?php echo htmlspecialchars(json_encode($c), ENT_QUOTES, 'UTF-8'); ?>)' class="bg-slate-50 text-slate-600 px-3 md:px-4 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-blue-600 hover:text-white transition-all shadow-sm active:scale-95">
+                                <button type="button" class="contact-edit-btn bg-slate-50 text-slate-600 px-3 md:px-4 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-blue-600 hover:text-white transition-all shadow-sm active:scale-95" data-contact="<?php echo $payload_json; ?>">
                                     Edit
                                 </button>
                                 <?php endif; ?>
@@ -100,9 +122,21 @@ $contacts = $db->get_contacts($q);
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    if (document.querySelectorAll('#contacts-tbody tr').length > 1 || !document.querySelector('#contacts-tbody td[colspan]')) {
+    var emptyRow = document.querySelector('#contacts-tbody td[colspan]');
+    if (!emptyRow) {
         setupPagination({ id: 'contacts', tbodyId: 'contacts-tbody', navId: 'contacts-pagination', perPage: 10 });
     }
+
+    document.querySelectorAll('.contact-edit-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            try {
+                var raw = btn.getAttribute('data-contact') || '{}';
+                editContact(JSON.parse(raw));
+            } catch (err) {
+                Swal.fire('Error', 'Could not open this contact.', 'error');
+            }
+        });
+    });
 });
 
 function openContactModal(isEdit) {
@@ -153,7 +187,7 @@ function openContactModal(isEdit) {
 function editContact(contact) {
     openContactModal(true);
     setTimeout(() => {
-        document.getElementById('swal-cid').value = contact.id;
+        document.getElementById('swal-cid').value = contact.id || 0;
         document.getElementById('swal-cname').value = contact.name || '';
         document.getElementById('swal-ccompany').value = contact.company || '';
         document.getElementById('swal-cphone').value = contact.phone || '';
