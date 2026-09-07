@@ -124,6 +124,18 @@ function toggleReportFilters() {
     }
 }
 
+if (typeof escapeHtml !== 'function') {
+    function escapeHtml(str) {
+        if (str === null || str === undefined) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+}
+
 function loadReport() {
     var type = $('#rep_type').val();
     var payload = {
@@ -164,13 +176,13 @@ function loadReport() {
                     var badgeClass = isOut ? 'bg-red-50 text-red-600 border-red-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100';
 
                     allRows.push(`<tr class="hover:bg-slate-50 transition border-b border-slate-50">
-                        <td class="p-6 font-bold text-slate-500">${dateDisplay}</td>
-                        <td class="p-6"><span class="${badgeClass} px-3 py-1 rounded-lg border uppercase text-[9px] font-black tracking-widest">${row.doc_type}</span></td>
+                        <td class="p-6 font-bold text-slate-500">${escapeHtml(dateDisplay)}</td>
+                        <td class="p-6"><span class="${badgeClass} px-3 py-1 rounded-lg border uppercase text-[9px] font-black tracking-widest">${escapeHtml(row.doc_type)}</span></td>
                         <td class="p-6">
-                            <div class="text-slate-900 font-black text-sm">${row.client_name}</div>
-                            <div class="text-[9px] text-slate-400 font-bold uppercase tracking-widest">${row.doc_no}</div>
+                            <div class="text-slate-900 font-black text-sm">${escapeHtml(row.client_name)}</div>
+                            <div class="text-[9px] text-slate-400 font-bold uppercase tracking-widest">${escapeHtml(row.doc_no)}</div>
                         </td>
-                        <td class="p-6"><div class="text-[10px] font-black text-slate-400 uppercase">${row.worker_cat || '-'}</div></td>
+                        <td class="p-6"><div class="text-[10px] font-black text-slate-400 uppercase">${escapeHtml(row.worker_cat || '-')}</div></td>
                         <td class="p-6 text-right font-black ${isOut ? 'text-red-600' : 'text-slate-800'}">
                             ${isOut ? '-' : ''}${amt.toLocaleString('en-US', {minimumFractionDigits: 2})}
                         </td>

@@ -181,6 +181,6 @@ $site_logo = $db->get_setting('company_logo', '');
             }
         }
     </script>
-    <script src="assets/js/script.js?v=5.0.3"></script>
+    <script src="assets/js/script.js?v=5.1.0"></script>
 </body>
 </html>

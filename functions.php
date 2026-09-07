@@ -107,6 +107,56 @@ function require_permission($level = 'edit') {
     }
 }
 
+/**
+ * Store an uploaded file with extension + MIME allowlist.
+ * Returns public URL path, or null if no file. Throws on invalid upload.
+ */
+function store_secure_upload($file, $uploads_dir = 'uploads/') {
+    if (!isset($file) || empty($file['name']) || ($file['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+        return null;
+    }
+    if (($file['error'] ?? UPLOAD_ERR_OK) !== UPLOAD_ERR_OK) {
+        throw new Exception('File upload failed.');
+    }
+    if (!is_dir($uploads_dir)) {
+        mkdir($uploads_dir, 0755, true);
+    }
+
+    $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+    $allowed = ['jpg', 'jpeg', 'png', 'pdf'];
+    if (!in_array($ext, $allowed, true)) {
+        throw new Exception("Invalid file type: $ext");
+    }
+
+    $finfo = finfo_open(FILEINFO_MIME_TYPE);
+    $mime  = finfo_file($finfo, $file['tmp_name']);
+    finfo_close($finfo);
+    $valid_mimes = ['image/jpeg', 'image/png', 'application/pdf'];
+    if (!in_array($mime, $valid_mimes, true)) {
+        throw new Exception('Security alert: MIME mismatch');
+    }
+
+    $safe_filename = bin2hex(random_bytes(10)) . '_' . time() . '.' . $ext;
+    if (!move_uploaded_file($file['tmp_name'], $uploads_dir . $safe_filename)) {
+        throw new Exception('Could not store uploaded file.');
+    }
+    return BASE_URL . $uploads_dir . $safe_filename;
+}
+
+/**
+ * Only keep existing proof paths that already live under uploads/.
+ */
+function sanitize_existing_upload_path($path) {
+    $path = trim((string) $path);
+    if ($path === '') return null;
+    $basename = basename(parse_url($path, PHP_URL_PATH) ?: $path);
+    if ($basename === '' || $basename === '.' || $basename === '..') return null;
+    if (!preg_match('/^[a-zA-Z0-9._-]+$/', $basename)) return null;
+    $local = 'uploads/' . $basename;
+    if (!is_file($local)) return null;
+    return BASE_URL . $local;
+}
+
 // ==================================================
 // 2. INPUT VALIDATION LAYER
 // ==================================================

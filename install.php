@@ -2,13 +2,12 @@
 /**
  * Hardened Database Installer - FWMS
  * Location: root/install.php
- * Version: 3.0.0 (Security Hardened)
+ * Version: 5.1.0 (Schema aligned with runtime)
  */
 
 require_once 'config.php';
 
 // 1. SECURITY: Check for Installer Lock
-// This prevents anyone from re-running the installer and overwriting data
 $lock_file = __DIR__ . '/install.lock';
 if (file_exists($lock_file)) {
     die("
@@ -22,125 +21,140 @@ if (file_exists($lock_file)) {
 }
 
 try {
-    // 2. Define Schema
     $sql = "
-    -- SETTINGS TABLE
     CREATE TABLE IF NOT EXISTS settings (
-        id INT AUTO_INCREMENT PRIMARY KEY, 
-        meta_key VARCHAR(100) UNIQUE, 
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        meta_key VARCHAR(100) UNIQUE,
         meta_value TEXT
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-    -- USERS TABLE
     CREATE TABLE IF NOT EXISTS users (
-        id INT AUTO_INCREMENT PRIMARY KEY, 
-        username VARCHAR(50) UNIQUE, 
-        password VARCHAR(255), 
-        role ENUM('admin', 'staff') DEFAULT 'staff', 
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        username VARCHAR(50) UNIQUE,
+        account_name VARCHAR(100),
+        password VARCHAR(255),
+        role ENUM('admin', 'staff') DEFAULT 'staff',
+        can_edit TINYINT(1) DEFAULT 0,
+        can_delete TINYINT(1) DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-    
-    
-    CREATE TABLE IF NOT EXISTS users (
-    id INT AUTO_INCREMENT PRIMARY KEY, 
-    username VARCHAR(50) UNIQUE, 
-    account_name VARCHAR(100), 
-    password VARCHAR(255), 
-    role ENUM('admin', 'staff') DEFAULT 'staff', 
-    can_edit TINYINT(1) DEFAULT 0, 
-    can_delete TINYINT(1) DEFAULT 0, 
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB;
 
-    -- WORKERS TABLE (Master Data)
     CREATE TABLE IF NOT EXISTS workers (
-        id INT AUTO_INCREMENT PRIMARY KEY, 
-        passport_number VARCHAR(20) UNIQUE, 
-        full_name VARCHAR(100), 
-        nationality VARCHAR(50), 
-        gender VARCHAR(10), 
-        dob DATE, 
-        current_stage INT DEFAULT 1, 
-        payment1_receipt VARCHAR(50), 
-        payment1_date DATE, 
-        payment1_time TIME, 
-        payment1_amount DECIMAL(10,2), 
-        payment1_proof VARCHAR(255), 
-        fomema_status VARCHAR(20), 
-        fomema_code VARCHAR(20), 
-        fomema_date DATE, 
-        fomema_proof VARCHAR(255), 
-        insurance_policy VARCHAR(50), 
-        insurance_provider VARCHAR(50), 
-        insurance_expiry DATE, 
-        insurance_proof VARCHAR(255), 
-        payment2_receipt VARCHAR(50), 
-        payment2_date DATE, 
-        payment2_time TIME, 
-        payment2_amount DECIMAL(10,2), 
-        payment2_proof VARCHAR(255), 
-        levy_reference VARCHAR(50), 
-        levy_expiry DATE, 
-        permit_number VARCHAR(50), 
-        permit_issue DATE, 
-        permit_expiry DATE, 
-        cidb_card_no VARCHAR(50), 
-        cidb_expiry DATE, 
-        created_by VARCHAR(50), 
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP, 
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        passport_number VARCHAR(20) UNIQUE,
+        full_name VARCHAR(100),
+        category VARCHAR(50) DEFAULT 'Calling Visa',
+        kwsp_no VARCHAR(50),
+        phone_number VARCHAR(30),
+        nationality VARCHAR(50),
+        gender VARCHAR(10),
+        dob DATE NULL,
+        passport_expiry DATE NULL,
+        visa_expiry DATE NULL,
+        current_stage INT DEFAULT 1,
+        total_payable DECIMAL(10,2) DEFAULT 0,
+        balance_due DECIMAL(10,2) DEFAULT 0,
+        fomema_status VARCHAR(30),
+        fomema_code VARCHAR(50),
+        fomema_expiry DATE NULL,
+        fomema_proof VARCHAR(255),
+        insurance_policy VARCHAR(80),
+        insurance_provider VARCHAR(80),
+        insurance_expiry DATE NULL,
+        insurance_proof VARCHAR(255),
+        levy_reference VARCHAR(80),
+        levy_status VARCHAR(50),
+        levy_expiry DATE NULL,
+        permit_number VARCHAR(80),
+        permit_status VARCHAR(50),
+        permit_issue DATE NULL,
+        permit_expiry DATE NULL,
+        epass_worker_proof VARCHAR(255),
+        passport_copy_proof VARCHAR(255),
+        cidb_card_no VARCHAR(80),
+        cidb_status VARCHAR(30),
+        cidb_category VARCHAR(50),
+        cidb_expiry DATE NULL,
+        cidb_proof VARCHAR(255),
+        created_by VARCHAR(50),
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_workers_permit_expiry (permit_expiry),
+        INDEX idx_workers_visa_expiry (visa_expiry),
+        INDEX idx_workers_stage (current_stage),
+        INDEX idx_workers_category (category)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-    -- INVOICES TABLE
+    CREATE TABLE IF NOT EXISTS additional_payments (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        worker_id INT NOT NULL,
+        description VARCHAR(255),
+        ref_no VARCHAR(100),
+        amount DECIMAL(10,2) DEFAULT 0,
+        payment_date DATE NULL,
+        proof_file VARCHAR(255),
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_ap_worker (worker_id),
+        INDEX idx_ap_ref (ref_no),
+        INDEX idx_ap_date (payment_date),
+        CONSTRAINT fk_ap_worker FOREIGN KEY (worker_id) REFERENCES workers(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
     CREATE TABLE IF NOT EXISTS invoices (
-        id INT AUTO_INCREMENT PRIMARY KEY, 
-        doc_no VARCHAR(50), 
-        type VARCHAR(20), 
-        client_name VARCHAR(100), 
-        description TEXT, 
-        amount DECIMAL(10,2), 
-        invoice_date DATE, 
-        created_by VARCHAR(50), 
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        doc_no VARCHAR(50),
+        type VARCHAR(30),
+        client_name VARCHAR(100),
+        description TEXT,
+        amount DECIMAL(10,2),
+        invoice_date DATE,
+        created_by VARCHAR(50),
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_inv_doc_no (doc_no),
+        INDEX idx_inv_date (invoice_date),
+        INDEX idx_inv_type (type)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-    -- SYSTEM LOGS
     CREATE TABLE IF NOT EXISTS logs (
-        id INT AUTO_INCREMENT PRIMARY KEY, 
-        user_id INT, 
-        user_name VARCHAR(50), 
-        user_role VARCHAR(20), 
-        action VARCHAR(50), 
-        details TEXT, 
-        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT,
+        user_name VARCHAR(50),
+        user_role VARCHAR(20),
+        action VARCHAR(50),
+        details TEXT,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_logs_time (timestamp)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-    -- WORKER ARCHIVES (RENEWAL HISTORY)
     CREATE TABLE IF NOT EXISTS worker_archives (
         id INT AUTO_INCREMENT PRIMARY KEY,
         worker_id INT,
         passport_number VARCHAR(20),
         full_name VARCHAR(100),
         archive_data TEXT,
-        archive_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        archive_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_wa_worker (worker_id),
+        INDEX idx_wa_passport (passport_number)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     ";
 
-    // 3. Execute Table Creation
     $pdo->exec($sql);
 
-    // 4. Seed Initial Settings
+    if (!is_dir(__DIR__ . '/uploads')) {
+        mkdir(__DIR__ . '/uploads', 0755, true);
+    }
+    $uploads_htaccess = __DIR__ . '/uploads/.htaccess';
+    if (!file_exists($uploads_htaccess)) {
+        file_put_contents($uploads_htaccess, "# Deny script execution in uploads\n<FilesMatch \"\\.(?i:php|phtml|php3|php4|php5|phar|cgi|pl|py|jsp|asp|aspx|sh)$\">\n    Require all denied\n</FilesMatch>\nOptions -ExecCGI\nRemoveHandler .php .phtml .php3 .php4 .php5 .phar\n");
+    }
+
     $pdo->prepare("INSERT IGNORE INTO settings (meta_key, meta_value) VALUES ('company_name', 'AGD Sports System'), ('company_logo', '')")->execute();
 
-    // 5. Seed Initial Admin Account
-    // Default password is 'password' - MUST be changed upon first login
     $admin_pass = password_hash('password', PASSWORD_DEFAULT);
-    $pdo->prepare("INSERT IGNORE INTO users (username, password, role) VALUES ('admin', ?, 'admin')")->execute([$admin_pass]);
+    $pdo->prepare("INSERT IGNORE INTO users (username, account_name, password, role, can_edit, can_delete) VALUES ('admin', 'Administrator', ?, 'admin', 1, 1)")->execute([$admin_pass]);
 
-    // 6. Finalize: Create the Lock file
     file_put_contents($lock_file, "Installed on: " . date('Y-m-d H:i:s'));
 
-    // Success UI
     echo "
     <!DOCTYPE html>
     <html>
@@ -169,13 +183,10 @@ try {
         </div>
     </body>
     </html>";
-
-} catch (PDOException $e) {
-    // Error UI
-    die("
+} catch (Exception $e) {
+    echo "
     <div style='font-family:sans-serif; text-align:center; padding:100px;'>
         <h2 style='color:#ef4444;'>Installation Failed</h2>
         <p>Error: " . htmlspecialchars($e->getMessage()) . "</p>
-        <p>Please check your config.php database credentials.</p>
-    </div>");
+    </div>";
 }

@@ -13,6 +13,9 @@ if (!isset($_SESSION['user_id'])) {
     exit;
 }
 
+// Refresh role/permissions from DB so revokes take effect without re-login
+sync_session_permissions_from_db($db);
+
 // 2. CSRF Security Check
 $headers = function_exists('apache_request_headers') ? apache_request_headers() : [];
 $request_token = $headers['X-CSRF-TOKEN'] ?? $_POST['csrf_token'] ?? '';
@@ -140,25 +143,9 @@ if ($action === 'save_worker') {
         if (!is_dir($uploads_dir)) mkdir($uploads_dir, 0755, true);
 
         foreach (['fomema_proof', 'insurance_proof', 'cidb_proof', 'epass_worker_proof', 'passport_copy_proof'] as $file_key) {
-    if (isset($_FILES[$file_key]) && !empty($_FILES[$file_key]['name']) && $_FILES[$file_key]['error'] === UPLOAD_ERR_OK) {
-                
-                $file_tmp  = $_FILES[$file_key]['tmp_name'];
-                $file_orig = $_FILES[$file_key]['name'];
-                $ext       = strtolower(pathinfo($file_orig, PATHINFO_EXTENSION));
-
-                $allowed = ['jpg', 'jpeg', 'png', 'pdf'];
-                if (!in_array($ext, $allowed)) throw new Exception("Invalid file type: $ext");
-
-                $finfo = finfo_open(FILEINFO_MIME_TYPE);
-                $mime  = finfo_file($finfo, $file_tmp);
-                finfo_close($finfo);
-                $valid_mimes = ['image/jpeg', 'image/png', 'application/pdf'];
-                if (!in_array($mime, $valid_mimes)) throw new Exception("Security alert: MIME mismatch");
-
-                $safe_filename = bin2hex(random_bytes(10)) . '_' . time() . '.' . $ext;
-                if (move_uploaded_file($file_tmp, $uploads_dir . $safe_filename)) {
-                    $data[$file_key] = BASE_URL . $uploads_dir . $safe_filename;
-                }
+            if (isset($_FILES[$file_key])) {
+                $stored = store_secure_upload($_FILES[$file_key], $uploads_dir);
+                if ($stored) $data[$file_key] = $stored;
             }
         }
 
@@ -174,48 +161,65 @@ if ($action === 'save_worker') {
 
         if ($id == 0) $data['created_by'] = $_SESSION['user_name'];
 
-        // 1. SAVE MAIN WORKER RECORD
-        $new_id = $db->save_worker($data, $id);
-        $db->log(($id > 0 ? 'UPDATE' : 'CREATE'), "Worker Record: " . ($data['passport_number'] ?? $new_id));
-
-        // --- 2. SYNC ADDITIONAL PAYMENTS (Fixed Deletion) ---
-        
-        // Clear all existing payments first to handle row removals (even the last row)
-        $db->pdo->prepare("DELETE FROM additional_payments WHERE worker_id = ?")->execute([$new_id]);
-
-        // Re-insert rows currently present on the screen
+        // Prepare payment rows before opening the DB transaction
+        $payment_rows = [];
         if (isset($_POST['add_pay_desc']) && is_array($_POST['add_pay_desc'])) {
             $descs = $_POST['add_pay_desc'];
             $refs = $_POST['add_pay_ref'] ?? [];
             $amts = $_POST['add_pay_amount'] ?? [];
             $dates = $_POST['add_pay_date'] ?? [];
             $existing_files = $_POST['existing_pay_proof'] ?? [];
-            
-            for($i = 0; $i < count($descs); $i++) {
-                if(!empty($descs[$i]) || !empty($refs[$i])) {
-                    // Use old file path if no new file is uploaded
-                    $proof_path = $existing_files[$i] ?? null;
 
-                    // Handle new file upload for this dynamic row
-                    if (isset($_FILES['add_pay_proof']['name'][$i]) && $_FILES['add_pay_proof']['error'][$i] === UPLOAD_ERR_OK) {
-                        $file_tmp = $_FILES['add_pay_proof']['tmp_name'][$i];
-                        $ext = strtolower(pathinfo($_FILES['add_pay_proof']['name'][$i], PATHINFO_EXTENSION));
-                        $fn = bin2hex(random_bytes(10)) . '.' . $ext;
-                        if (move_uploaded_file($file_tmp, $uploads_dir . $fn)) {
-                            $proof_path = BASE_URL . $uploads_dir . $fn;
-                        }
-                    }
+            for ($i = 0; $i < count($descs); $i++) {
+                if (empty($descs[$i]) && empty($refs[$i])) continue;
 
-                    $stmt = $db->pdo->prepare("INSERT INTO additional_payments (worker_id, description, ref_no, amount, payment_date, proof_file) VALUES (?, ?, ?, ?, ?, ?)");
-                    $stmt->execute([$new_id, sanitize_text_field($descs[$i]), sanitize_text_field($refs[$i]), floatval($amts[$i]), $dates[$i], $proof_path]);
+                $proof_path = sanitize_existing_upload_path($existing_files[$i] ?? '');
+
+                if (isset($_FILES['add_pay_proof']['name'][$i]) && $_FILES['add_pay_proof']['error'][$i] === UPLOAD_ERR_OK) {
+                    $stored = store_secure_upload([
+                        'name' => $_FILES['add_pay_proof']['name'][$i],
+                        'type' => $_FILES['add_pay_proof']['type'][$i] ?? '',
+                        'tmp_name' => $_FILES['add_pay_proof']['tmp_name'][$i],
+                        'error' => $_FILES['add_pay_proof']['error'][$i],
+                        'size' => $_FILES['add_pay_proof']['size'][$i] ?? 0,
+                    ], $uploads_dir);
+                    if ($stored) $proof_path = $stored;
                 }
+
+                $pay_date = trim($dates[$i] ?? '');
+                if ($pay_date === '' || $pay_date === '0000-00-00') $pay_date = null;
+
+                $payment_rows[] = [
+                    sanitize_text_field($descs[$i] ?? ''),
+                    sanitize_text_field($refs[$i] ?? ''),
+                    floatval($amts[$i] ?? 0),
+                    $pay_date,
+                    $proof_path,
+                ];
             }
         }
 
-        // 3. RECALCULATE BALANCE (Always run after saving payments)
-        $db->update_balance($new_id);
+        $db->pdo->beginTransaction();
+        try {
+            $new_id = $db->save_worker($data, $id);
+            $db->log(($id > 0 ? 'UPDATE' : 'CREATE'), "Worker Record: " . ($data['passport_number'] ?? $new_id));
 
-        echo json_encode(['success' => true, 'data' => ['id' => $new_id]]);
+            $db->pdo->prepare("DELETE FROM additional_payments WHERE worker_id = ?")->execute([$new_id]);
+
+            if (!empty($payment_rows)) {
+                $stmt = $db->pdo->prepare("INSERT INTO additional_payments (worker_id, description, ref_no, amount, payment_date, proof_file) VALUES (?, ?, ?, ?, ?, ?)");
+                foreach ($payment_rows as $row) {
+                    $stmt->execute([$new_id, $row[0], $row[1], $row[2], $row[3], $row[4]]);
+                }
+            }
+
+            $db->update_balance($new_id);
+            $db->pdo->commit();
+            echo json_encode(['success' => true, 'data' => ['id' => $new_id]]);
+        } catch (Exception $inner) {
+            if ($db->pdo->inTransaction()) $db->pdo->rollBack();
+            throw $inner;
+        }
 
     } catch (Exception $e) {
         echo json_encode(['success' => false, 'data' => $e->getMessage()]);
@@ -228,6 +232,7 @@ if ($action === 'save_worker') {
 // =======================================================
 
 if ($action === 'get_report') {
+    require_permission('admin');
     try {
         $allowed_types = ['daily', 'monthly'];
         $allowed_doc_types = ['Invoice', 'Official Receipt', 'Payment Voucher', 'Refund Receipt'];
@@ -337,7 +342,6 @@ if ($action === 'archive_worker') {
 }
 
 if ($action === 'delete_worker_archive') {
-    sync_session_permissions_from_db($db);
     require_permission('edit');
     $archive_id = intval($_POST['archive_id'] ?? 0);
     $worker_id = intval($_POST['worker_id'] ?? 0);
@@ -395,7 +399,7 @@ if ($action === 'save_user') {
     $validation = validate_request([
         'username'     => ['required', 'string', 'max:80'],
         'account_name' => ['required', 'string', 'max:120'],
-        'role'         => ['required', 'string', 'in:admin,editor,viewer'],
+        'role'         => ['required', 'string', 'in:admin,staff'],
     ], $_POST);
     if (!$validation['valid']) {
         echo json_encode(['success' => false, 'data' => implode(' ', $validation['errors'])]);
@@ -457,6 +461,22 @@ if ($action === 'save_invoice') {
         'created_by'   => $_SESSION['user_name']
     ];
     $id = intval($_POST['id'] ?? 0);
+
+    // Mirror UI rule: staff cannot edit Official Receipts
+    if ($id > 0 && !current_user_can_admin()) {
+        $stmt = $db->pdo->prepare("SELECT type FROM invoices WHERE id = ? LIMIT 1");
+        $stmt->execute([$id]);
+        $existing = $stmt->fetch();
+        if ($existing && $existing->type === 'Official Receipt') {
+            echo json_encode(['success' => false, 'data' => 'Staff members cannot edit Official Receipts.']);
+            exit;
+        }
+        if ($data['type'] === 'Official Receipt') {
+            echo json_encode(['success' => false, 'data' => 'Staff members cannot convert documents to Official Receipt.']);
+            exit;
+        }
+    }
+
     if ($id > 0) {
         $db->update_invoice($data, $id);
         $saved_id = $id;
@@ -504,19 +524,23 @@ if ($action === 'check_receipt') {
 
 if ($action === 'save_settings') {
     require_permission('admin');
-    $db->update_setting('company_name', sanitize_text_field($_POST['c_name']));
-    if (!empty($_FILES['c_logo_file']['name'])) {
-        $ext = strtolower(pathinfo($_FILES['c_logo_file']['name'], PATHINFO_EXTENSION));
-        $fn = 'logo_'.time().'.'.$ext;
-        if (move_uploaded_file($_FILES['c_logo_file']['tmp_name'], 'uploads/'.$fn)) {
-            $db->update_setting('company_logo', BASE_URL.'uploads/'.$fn);
+    try {
+        $db->update_setting('company_name', sanitize_text_field($_POST['c_name']));
+        if (!empty($_FILES['c_logo_file']['name'])) {
+            $stored = store_secure_upload($_FILES['c_logo_file'], 'uploads/');
+            if ($stored) {
+                $db->update_setting('company_logo', $stored);
+            }
         }
+        echo json_encode(['success' => true]);
+    } catch (Exception $e) {
+        echo json_encode(['success' => false, 'data' => $e->getMessage()]);
     }
-    echo json_encode(['success' => true]);
     exit;
 }
 
 if ($action === 'export_data') {
+    require_permission('edit');
     $search = sanitize_text_field($_POST['search'] ?? '');
     $cat    = sanitize_text_field($_POST['category'] ?? '');
     $start  = sanitize_text_field($_POST['start_date'] ?? '');
