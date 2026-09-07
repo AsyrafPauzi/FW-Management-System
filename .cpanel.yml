@@ -1,13 +1,9 @@
 ---
-# cPanel Git deployment for FW Management System
-# Target: https://internal.agdsports.com/
-# Docs: https://docs.cpanel.net/knowledge-base/web-services/guide-to-git-deployment/
-# If Deploy fails or files land in the wrong place, confirm Document Root in
-# cPanel → Domains / Subdomains and update DEPLOYPATH to match.
+# Repo and site share this path: /home/agdsport/internal.agdsports.com
+# "Update from Remote" already refreshes live files; Deploy copies app files in place.
 deployment:
   tasks:
-    - export DEPLOYPATH=$HOME/public_html/internal.agdsports.com/
-    - /bin/mkdir -p $DEPLOYPATH
+    - export DEPLOYPATH=/home/agdsport/internal.agdsports.com/
     - /bin/mkdir -p $DEPLOYPATH/uploads $DEPLOYPATH/storage $DEPLOYPATH/backups $DEPLOYPATH/cli $DEPLOYPATH/assets $DEPLOYPATH/views
     - /bin/cp index.php $DEPLOYPATH
     - /bin/cp api.php $DEPLOYPATH
