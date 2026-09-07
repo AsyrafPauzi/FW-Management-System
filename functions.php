@@ -375,7 +375,7 @@ function fwms_login_lockout_clear(PDO $pdo, $ip = null) {
 // ==================================================
 
 function fwms_backup_tables() {
-    return ['settings', 'users', 'workers', 'invoices', 'logs', 'worker_archives', 'additional_payments', 'login_attempts'];
+    return ['settings', 'users', 'workers', 'invoices', 'logs', 'worker_archives', 'additional_payments', 'login_attempts', 'contacts'];
 }
 
 function fwms_build_sql_backup(PDO $pdo) {
@@ -538,6 +538,28 @@ class DB {
         $this->ensure_workers_insurance_proof_column();
         $this->ensure_performance_indexes();
         ensure_login_attempts_table($this->pdo);
+        $this->ensure_contacts_table();
+    }
+
+    /** Contacts directory for Bill To / Pay To and general address book. */
+    private function ensure_contacts_table() {
+        try {
+            $this->pdo->exec("CREATE TABLE IF NOT EXISTS contacts (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(150) NOT NULL,
+                company VARCHAR(150) NULL,
+                phone VARCHAR(50) NULL,
+                email VARCHAR(120) NULL,
+                address TEXT NULL,
+                notes TEXT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_contacts_name (name),
+                INDEX idx_contacts_company (company)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        } catch (PDOException $e) {
+            error_log('DB schema note (contacts): ' . $e->getMessage());
+        }
     }
 
     /** Adds insurance_proof when upgrading older databases (safe no-op if present). */
@@ -950,6 +972,83 @@ class DB {
     // --------------------------------------------------
     public function get_users() {
         return $this->pdo->query("SELECT * FROM users ORDER BY role ASC")->fetchAll();
+    }
+
+    // --------------------------------------------------
+    // CONTACTS DIRECTORY
+    // --------------------------------------------------
+    public function get_contacts($search = '') {
+        $search = trim((string) $search);
+        if ($search !== '') {
+            $like = '%' . $search . '%';
+            $stmt = $this->pdo->prepare(
+                "SELECT * FROM contacts
+                 WHERE name LIKE ? OR company LIKE ? OR phone LIKE ? OR email LIKE ?
+                 ORDER BY name ASC"
+            );
+            $stmt->execute([$like, $like, $like, $like]);
+            return $stmt->fetchAll();
+        }
+        return $this->pdo->query("SELECT * FROM contacts ORDER BY name ASC")->fetchAll();
+    }
+
+    public function get_contact_names() {
+        try {
+            return $this->pdo->query(
+                "SELECT name FROM contacts WHERE name IS NOT NULL AND name != '' ORDER BY name ASC"
+            )->fetchAll(PDO::FETCH_COLUMN);
+        } catch (PDOException $e) {
+            return [];
+        }
+    }
+
+    public function save_contact(array $data, $id = 0) {
+        $id = (int) $id;
+        $name = sanitize_text_field($data['name'] ?? '');
+        if ($name === '') return false;
+
+        $row = [
+            'name' => $name,
+            'company' => sanitize_text_field($data['company'] ?? '') ?: null,
+            'phone' => sanitize_text_field($data['phone'] ?? '') ?: null,
+            'email' => sanitize_text_field($data['email'] ?? '') ?: null,
+            'address' => sanitize_text_field($data['address'] ?? '') ?: null,
+            'notes' => sanitize_text_field($data['notes'] ?? '') ?: null,
+        ];
+
+        if ($id > 0) {
+            $stmt = $this->pdo->prepare(
+                "UPDATE contacts SET name=?, company=?, phone=?, email=?, address=?, notes=? WHERE id=?"
+            );
+            $ok = $stmt->execute([
+                $row['name'], $row['company'], $row['phone'], $row['email'], $row['address'], $row['notes'], $id
+            ]);
+            if ($ok) $this->log('UPDATE_CONTACT', "Updated contact: {$row['name']} (#$id)");
+            return $ok ? $id : false;
+        }
+
+        $stmt = $this->pdo->prepare(
+            "INSERT INTO contacts (name, company, phone, email, address, notes) VALUES (?, ?, ?, ?, ?, ?)"
+        );
+        $ok = $stmt->execute([
+            $row['name'], $row['company'], $row['phone'], $row['email'], $row['address'], $row['notes']
+        ]);
+        if (!$ok) return false;
+        $new_id = (int) $this->pdo->lastInsertId();
+        $this->log('CREATE_CONTACT', "Created contact: {$row['name']} (#$new_id)");
+        return $new_id;
+    }
+
+    public function delete_contact($id) {
+        $id = (int) $id;
+        $stmt = $this->pdo->prepare("SELECT name FROM contacts WHERE id = ? LIMIT 1");
+        $stmt->execute([$id]);
+        $contact = $stmt->fetch();
+        if (!$contact) return false;
+        $del = $this->pdo->prepare("DELETE FROM contacts WHERE id = ?");
+        $ok = $del->execute([$id]);
+        if ($ok) $this->log('DELETE_CONTACT', "Deleted contact: {$contact->name} (#$id)");
+        return $ok;
     }
 
     public function save_user($u, $an, $p, $r, $can_edit, $can_delete, $id = 0) {

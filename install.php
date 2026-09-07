@@ -143,6 +143,20 @@ try {
         locked_until INT NOT NULL DEFAULT 0,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+    CREATE TABLE IF NOT EXISTS contacts (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(150) NOT NULL,
+        company VARCHAR(150) NULL,
+        phone VARCHAR(50) NULL,
+        email VARCHAR(120) NULL,
+        address TEXT NULL,
+        notes TEXT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_contacts_name (name),
+        INDEX idx_contacts_company (company)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     ";
 
     $pdo->exec($sql);

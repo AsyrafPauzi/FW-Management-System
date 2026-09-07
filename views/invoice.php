@@ -21,8 +21,11 @@ $stmt->execute();
 $invoices = $stmt->fetchAll();
 $is_admin = current_user_can_admin();
 
-// Distinct recipient names for Pay To / Bill To suggestions (all history, not just current page)
+// Distinct recipient names for Pay To / Bill To suggestions (contacts + invoice history)
 $client_names = $db->pdo->query("SELECT DISTINCT client_name FROM invoices WHERE client_name IS NOT NULL AND client_name != '' ORDER BY client_name ASC")->fetchAll(PDO::FETCH_COLUMN);
+$contact_names = $db->get_contact_names();
+$client_names = array_values(array_unique(array_merge($contact_names, $client_names)));
+sort($client_names, SORT_NATURAL | SORT_FLAG_CASE);
 ?>
 
 <div class="container mx-auto px-2 md:px-0 animate-fade-in pb-20">

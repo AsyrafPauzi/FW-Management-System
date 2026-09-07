@@ -13,7 +13,7 @@ if (!isset($_SESSION['user_id'])) {
 }
 
 // index.php - Replace line 16-17
-$allowed_pages = ['dashboard', 'workers', 'wizard', 'reports', 'invoice', 'archives', 'profile', 'logs', 'settings', 'users'];
+$allowed_pages = ['dashboard', 'workers', 'wizard', 'reports', 'invoice', 'archives', 'profile', 'logs', 'settings', 'users', 'contacts'];
 $page = isset($_GET['page']) && in_array($_GET['page'], $allowed_pages) ? $_GET['page'] : 'dashboard';
 
 // 2. Routing Logic
@@ -101,6 +101,9 @@ $site_logo = $db->get_setting('company_logo', '');
                 
                 <div class="pt-6 mt-6 border-t border-slate-800 opacity-30 uppercase text-[10px] px-4 font-bold tracking-widest text-slate-500 italic mb-2">Management</div>
                 
+                <a href="?page=contacts" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl transition font-bold <?php echo $page=='contacts'?'active':'text-slate-400 hover:bg-slate-800'; ?>">
+                    <span>📇</span> Contacts
+                </a>
                 <a href="?page=profile" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl transition font-bold <?php echo $page=='profile'?'active':'text-slate-400 hover:bg-slate-800'; ?>">
                     <span>🔒</span> Security
                 </a>
@@ -181,6 +184,6 @@ $site_logo = $db->get_setting('company_logo', '');
             }
         }
     </script>
-    <script src="assets/js/script.js?v=5.3.0"></script>
+    <script src="assets/js/script.js?v=5.4.0"></script>
 </body>
 </html>

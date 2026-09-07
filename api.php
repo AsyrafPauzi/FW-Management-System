@@ -460,6 +460,39 @@ if ($action === 'delete_user') {
     exit;
 }
 
+if ($action === 'save_contact') {
+    require_permission('edit');
+
+    $validation = validate_request([
+        'name'    => ['required', 'string', 'max:150'],
+        'company' => ['string', 'max:150'],
+        'phone'   => ['string', 'max:50'],
+        'email'   => ['string', 'max:120'],
+        'address' => ['string', 'max:500'],
+        'notes'   => ['string', 'max:1000'],
+    ], $_POST);
+    if (!$validation['valid']) {
+        echo json_encode(['success' => false, 'data' => implode(' ', $validation['errors'])]);
+        exit;
+    }
+    if (!empty($_POST['email']) && !filter_var($_POST['email'], FILTER_VALIDATE_EMAIL)) {
+        echo json_encode(['success' => false, 'data' => 'Invalid email address.']);
+        exit;
+    }
+
+    $id = intval($_POST['id'] ?? 0);
+    $result = $db->save_contact($_POST, $id);
+    echo json_encode(['success' => (bool) $result, 'data' => $result ?: 'Could not save contact.']);
+    exit;
+}
+
+if ($action === 'delete_contact') {
+    require_permission('delete');
+    $ok = $db->delete_contact(intval($_POST['id'] ?? 0));
+    echo json_encode(['success' => (bool) $ok, 'data' => $ok ? null : 'Contact not found.']);
+    exit;
+}
+
 if ($action === 'save_invoice') {
     require_permission('edit');
 
