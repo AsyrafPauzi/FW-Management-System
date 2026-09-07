@@ -1,11 +1,12 @@
 ---
 # cPanel Git deployment for FW Management System
+# Target: https://internal.agdsports.com/
 # Docs: https://docs.cpanel.net/knowledge-base/web-services/guide-to-git-deployment/
-# Uses $HOME so it works for any cPanel account. Change DEPLOYPATH if the site
-# lives in a subdomain/addon folder (e.g. $HOME/public_html/fwms/).
+# If Deploy fails or files land in the wrong place, confirm Document Root in
+# cPanel → Domains / Subdomains and update DEPLOYPATH to match.
 deployment:
   tasks:
-    - export DEPLOYPATH=$HOME/public_html/
+    - export DEPLOYPATH=$HOME/public_html/internal/
     - /bin/mkdir -p $DEPLOYPATH
     - /bin/mkdir -p $DEPLOYPATH/uploads $DEPLOYPATH/storage $DEPLOYPATH/backups $DEPLOYPATH/cli $DEPLOYPATH/assets $DEPLOYPATH/views
     - /bin/cp index.php $DEPLOYPATH
