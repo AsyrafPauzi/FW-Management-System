@@ -185,13 +185,7 @@ function validate_wizard_stage_advance($stage, array $post, $existing_worker = n
         }
     }
     if ($stage == 4) {
-        foreach ([
-            'insurance_policy' => 'Insurance policy',
-            'insurance_provider' => 'Insurance provider',
-            'insurance_expiry' => 'Insurance expiry',
-        ] as $k => $label) {
-            if ($err = $req($k, $label)) $errors[] = $err;
-        }
+        // Insurance fields are optional on continue; users may fill later.
     }
     if ($stage == 7) {
         foreach ([
