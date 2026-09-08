@@ -796,29 +796,9 @@ $(document).on('click', '.fws-edit-inv', function(e) {
     $('#btn-export-pdf').on('click', function(e) { e.preventDefault(); window.executeExport('pdf'); });
     $('#btn-export-csv').on('click', function(e) { e.preventDefault(); window.executeExport('csv'); });
 
-    // D. Receipt Check (Ref No only)
+    // D. Payment Ref No — reuse allowed (not unique across workers or rows)
     $(document).on('change', '.check-receipt-ref, input[name="add_pay_ref[]"]', function() {
-        var input = $(this);
-        var receipt = input.val().trim();
-        if (receipt === '') return;
-
-        var count = 0;
-        $('.check-receipt-ref, input[name="add_pay_ref[]"]').each(function() {
-            if ($(this).val().trim().toLowerCase() === receipt.toLowerCase()) count++;
-        });
-
-        if (count > 1) {
-            Swal.fire({ icon: 'error', title: 'Duplicate Detected', text: 'Receipt/ref number used elsewhere on this page.' });
-            input.val('').addClass('border-red-500').focus();
-            return;
-        }
-
-        $.post(API_URL, { action: 'check_receipt', receipt: receipt, exclude_id: $('input[name="worker_id"]').val(), csrf_token: CSRF_TOKEN }, function(res) {
-            if (res.exists) {
-                Swal.fire({ icon: 'error', title: 'Receipt Already Used', text: res.message });
-                input.val('').addClass('border-red-500').focus();
-            } else { input.removeClass('border-red-500').addClass('border-emerald-500'); }
-        }, 'json');
+        $(this).removeClass('border-red-500').addClass('border-emerald-500');
     });
 
     // --- AMEND: CONSOLIDATED OR (ONE LINE FORMAT) ---

@@ -178,23 +178,12 @@ if ($action === 'save_worker') {
             $amts = $_POST['add_pay_amount'] ?? [];
             $dates = $_POST['add_pay_date'] ?? [];
             $existing_files = $_POST['existing_pay_proof'] ?? [];
-            $seen_refs = [];
 
             for ($i = 0; $i < count($descs); $i++) {
                 if (empty($descs[$i]) && empty($refs[$i])) continue;
 
                 $ref = sanitize_text_field($refs[$i] ?? '');
-                if ($ref !== '') {
-                    $ref_key = strtolower($ref);
-                    if (isset($seen_refs[$ref_key])) {
-                        throw new Exception("Duplicate receipt/ref on this form: $ref");
-                    }
-                    $seen_refs[$ref_key] = true;
-                    $dup = $db->check_global_receipt_usage($ref, $id);
-                    if ($dup) {
-                        throw new Exception("Receipt/ref already used for: " . ($dup->full_name ?? 'another record'));
-                    }
-                }
+                // Payment Ref No may be reused across workers / rows (not unique).
 
                 $proof_path = sanitize_existing_upload_path($existing_files[$i] ?? '');
 
@@ -564,21 +553,7 @@ if ($action === 'check_passport') {
 }
 
 if ($action === 'check_receipt') {
-    $receipt = sanitize_text_field($_POST['receipt'] ?? '');
-    $exclude_id = intval($_POST['exclude_id'] ?? 0);
-    if ($receipt === '') {
-        echo json_encode(['exists' => false]);
-        exit;
-    }
-
-    $dup = $db->check_global_receipt_usage($receipt, $exclude_id);
-    if ($dup) {
-        $who = $dup->full_name ?? 'another record';
-        $src = $dup->source ?? 'system';
-        echo json_encode(['exists' => true, 'message' => "Already used ($src) for: $who"]);
-        exit;
-    }
-
+    // Payment Ref No is intentionally not unique — allow reuse.
     echo json_encode(['exists' => false]);
     exit;
 }

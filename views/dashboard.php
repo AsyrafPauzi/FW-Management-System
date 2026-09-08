@@ -111,20 +111,21 @@ $chart_labels = $stats['stage_labels'] ?? ['Reg & Pay', 'FOMEMA', 'Insurance', '
                     <h3 class="font-black text-white text-xs uppercase tracking-widest flex items-center gap-2 leading-none">
                         <span class="animate-pulse text-red-500">⬤</span> Compliance Alert
                     </h3>
-                    <p class="text-[9px] text-slate-500 uppercase font-bold mt-1">Permit · Visa · Insurance · CIDB · FOMEMA</p>
+                    <p class="text-[9px] text-slate-500 uppercase font-bold mt-1">Permit expiry only · Red ≤30 · Orange ≤40 · Blue ≤50</p>
                 </div>
                 <div class="flex gap-2">
-                    <span class="bg-red-500 text-white text-[9px] font-black px-2 py-1 rounded-lg">CRITICAL: <?php echo count($intelligence['critical']); ?></span>
-                    <span class="bg-orange-500 text-white text-[9px] font-black px-2 py-1 rounded-lg">WARNING: <?php echo count($intelligence['warning']); ?></span>
+                    <span class="bg-red-500 text-white text-[9px] font-black px-2 py-1 rounded-lg">RED: <?php echo count($intelligence['critical']); ?></span>
+                    <span class="bg-orange-500 text-white text-[9px] font-black px-2 py-1 rounded-lg">ORANGE: <?php echo count($intelligence['warning']); ?></span>
+                    <span class="bg-blue-500 text-white text-[9px] font-black px-2 py-1 rounded-lg">BLUE: <?php echo count($intelligence['upcoming']); ?></span>
                 </div>
             </div>
 
             <div class="grid grid-cols-1 lg:grid-cols-3 divide-y lg:divide-y-0 lg:divide-x divide-slate-100">
                 
-                <!-- COLUMN 1: CRITICAL (< 30 Days) -->
+                <!-- COLUMN 1: RED (≤ 30 Days / expired) -->
                 <div class="p-4">
                     <div class="flex items-center justify-between mb-4 px-2">
-                        <span class="text-[10px] font-black text-red-600 uppercase italic">Red Zone (Immediate)</span>
+                        <span class="text-[10px] font-black text-red-600 uppercase italic">Red Zone (≤30 days)</span>
                         <span class="w-2 h-2 rounded-full bg-red-500 animate-ping"></span>
                     </div>
                     <div class="space-y-3 max-h-[400px] overflow-y-auto custom-scrollbar pr-2">
@@ -148,7 +149,7 @@ $chart_labels = $stats['stage_labels'] ?? ['Reg & Pay', 'FOMEMA', 'Insurance', '
                 <!-- COLUMN 2: WARNING (30 - 60 Days) -->
                 <div class="p-4">
                     <div class="flex items-center justify-between mb-4 px-2">
-                        <span class="text-[10px] font-black text-orange-600 uppercase italic">Orange Zone (Action Needed)</span>
+                        <span class="text-[10px] font-black text-orange-600 uppercase italic">Orange Zone (31–40 days)</span>
                     </div>
                     <div class="space-y-3 max-h-[400px] overflow-y-auto custom-scrollbar pr-2">
                         <?php if(empty($intelligence['warning'])): ?>
@@ -171,7 +172,7 @@ $chart_labels = $stats['stage_labels'] ?? ['Reg & Pay', 'FOMEMA', 'Insurance', '
                 <!-- COLUMN 3: UPCOMING (60 - 90 Days) -->
                 <div class="p-4">
                     <div class="flex items-center justify-between mb-4 px-2">
-                        <span class="text-[10px] font-black text-blue-600 uppercase italic">Blue Zone (Monitor)</span>
+                        <span class="text-[10px] font-black text-blue-600 uppercase italic">Blue Zone (41–50 days)</span>
                     </div>
                     <div class="space-y-3 max-h-[400px] overflow-y-auto custom-scrollbar pr-2">
                         <?php if(empty($intelligence['upcoming'])): ?>

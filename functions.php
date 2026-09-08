@@ -184,9 +184,6 @@ function validate_wizard_stage_advance($stage, array $post, $existing_worker = n
             if ($err = $req($k, $label)) $errors[] = $err;
         }
     }
-    if ($stage == 4) {
-        // Insurance fields are optional on continue; users may fill later.
-    }
     if ($stage == 7) {
         foreach ([
             'permit_number' => 'Permit sticker number',
@@ -615,49 +612,54 @@ class DB {
     }
 
     // --------------------------------------------------
-    // EXPIRY INTELLIGENCE (Permit / Visa / Insurance / CIDB)
+    // EXPIRY INTELLIGENCE (Permit expiry only)
+    // Red ≤30 · Orange 31–40 · Blue 41–50
     // --------------------------------------------------
     public function get_compliance_alerts() {
         $alerts = ['critical' => [], 'warning' => [], 'upcoming' => []];
-        $date_fields = [
-            'permit_expiry' => 'Permit',
-            'visa_expiry' => 'Visa',
-            'insurance_expiry' => 'Insurance',
-            'cidb_expiry' => 'CIDB',
-            'fomema_expiry' => 'FOMEMA',
-        ];
-        $stmt = $this->pdo->query("SELECT id, full_name, passport_number, permit_expiry, visa_expiry, insurance_expiry, cidb_expiry, fomema_expiry FROM workers");
+        $stmt = $this->pdo->query(
+            "SELECT id, full_name, passport_number, permit_expiry
+             FROM workers
+             WHERE permit_expiry IS NOT NULL
+               AND permit_expiry > '1000-01-01'"
+        );
         $workers = $stmt->fetchAll();
         $now = new DateTime();
+        $now->setTime(0, 0, 0);
 
         foreach ($workers as $w) {
-            foreach ($date_fields as $field => $label) {
-                if (empty($w->$field) || $w->$field == '0000-00-00' || $w->$field == '1970-01-01') continue;
-                try {
-                    $exp = new DateTime($w->$field);
-                } catch (Exception $e) {
-                    continue;
-                }
-                $diff = $now->diff($exp);
-                $days = (int) $diff->days;
-                if ($exp < $now) $days = -$days;
+            if (empty($w->permit_expiry) || $w->permit_expiry == '0000-00-00' || $w->permit_expiry == '1970-01-01') {
+                continue;
+            }
+            try {
+                $exp = new DateTime($w->permit_expiry);
+                $exp->setTime(0, 0, 0);
+            } catch (Exception $e) {
+                continue;
+            }
+            $diff = $now->diff($exp);
+            $days = (int) $diff->days;
+            if ($exp < $now) $days = -$days;
 
-                $item = [
-                    'id' => $w->id,
-                    'name' => $w->full_name,
-                    'passport' => $w->passport_number,
-                    'label' => $label,
-                    'date' => $w->$field,
-                    'days' => $days,
-                ];
+            $item = [
+                'id' => $w->id,
+                'name' => $w->full_name,
+                'passport' => $w->passport_number,
+                'label' => 'Permit',
+                'date' => $w->permit_expiry,
+                'days' => $days,
+            ];
 
-                if ($days <= 30)       $alerts['critical'][] = $item;
-                elseif ($days <= 60)   $alerts['warning'][]  = $item;
-                elseif ($days <= 90)   $alerts['upcoming'][] = $item;
+            if ($days <= 30) {
+                $alerts['critical'][] = $item;
+            } elseif ($days <= 40) {
+                $alerts['warning'][] = $item;
+            } elseif ($days <= 50) {
+                $alerts['upcoming'][] = $item;
             }
         }
         foreach ($alerts as &$group) {
-            usort($group, function($a, $b) { return $a['days'] - $b['days']; });
+            usort($group, function ($a, $b) { return $a['days'] - $b['days']; });
         }
         return $alerts;
     }
